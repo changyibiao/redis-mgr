@@ -1,2 +1,3 @@
 *.pyc
-*.log
+log/*.log
+log/*.conf
