@@ -4,8 +4,7 @@
 #redis      20xxx
 #sentinel   21xxx
 
-
-#we will gen:
+#we will generate:
 #port
 #pidfile
 #logfile
@@ -26,6 +25,8 @@ cluster0 = {
         # host:port, install path
         ('127.0.0.5:20000', '/tmp/redis-20000'), ('127.0.0.5:30000', '/tmp/redis-30000'), #(示例配置, 主从端口分别用2xxxx/3xxxx)
         ('127.0.0.5:20001', '/tmp/redis-20001'), ('127.0.0.5:30001', '/tmp/redis-30001'),
+        ('127.0.0.5:20002', '/tmp/redis-20002'), ('127.0.0.5:30002', '/tmp/redis-30002'),
+        ('127.0.0.5:20003', '/tmp/redis-20003'), ('127.0.0.5:30003', '/tmp/redis-30003'),
     ],
     'sentinel':[
         ('127.0.0.5:21001', '/tmp/sentinel-21001'),
@@ -38,4 +39,5 @@ cluster0 = {
         ('127.0.0.5:22002', '/tmp/nutcracker-22002'),
     ],
 }
+
 

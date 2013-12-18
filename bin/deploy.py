@@ -269,67 +269,42 @@ class Cluster():
         for m in self.all_nutcracker:
             m.args['cluster_name'] = args['cluster_name']
 
-    def deploy(self):
+    def _doit(self, op, skip_if_alive):
+        logging.notice('%s redis' % (op, ))
         for s in self.all_redis:
-            if not s._alive():
-                s.deploy()
-            else:
+            logging.info('%s %s' % (op, s))
+            if skip_if_alive and s._alive():
                 logging.info('%s is alive' % s)
+            eval('s.%s()' % op)
 
+        logging.notice('%s sentinel' % (op, ))
         for s in self.all_sentinel:
-            if not s._alive():
-                s.deploy()
-            else:
+            logging.info('%s %s' % (op, s))
+            if skip_if_alive and s._alive():
                 logging.info('%s is alive' % s)
+            eval('s.%s()' % op)
 
+        logging.notice('%s nutcracker' % (op, ))
         for s in self.all_nutcracker:
-            if not s._alive():
-                s.deploy()
-            else:
+            logging.info('%s %s' % (op, s))
+            if skip_if_alive and s._alive():
                 logging.info('%s is alive' % s)
+            eval('s.%s()' % op)
+
+    def deploy(self):
+        self._doit('deploy', True)
 
     def start(self):
-        for s in self.all_redis:
-            if not s._alive():
-                s.start()
-            else:
-                logging.info('%s is alive' % s)
-
-        for s in self.all_sentinel:
-            if not s._alive():
-                s.start()
-            else:
-                logging.info('%s is alive' % s)
-
-        for s in self.all_nutcracker:
-            if not s._alive():
-                s.start()
-            else:
-                logging.info('%s is alive' % s)
+        self._doit('start', True)
 
     def stop(self):
-        for s in self.all_redis:
-            s.stop()
-        for s in self.all_sentinel:
-            s.stop()
-        for s in self.all_nutcracker:
-            s.stop()
+        self._doit('stop', False)
 
     def status(self):
-        for s in self.all_redis:
-            s.status()
-        for s in self.all_sentinel:
-            s.status()
-        for s in self.all_nutcracker:
-            s.status()
+        self._doit('status', False)
 
     def log(self):
-        for s in self.all_redis:
-            s.log()
-        for s in self.all_sentinel:
-            s.log()
-        for s in self.all_nutcracker:
-            s.log()
+        self._doit('log', False)
 
 def discover_op():
     import inspect
