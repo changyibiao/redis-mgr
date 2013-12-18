@@ -108,7 +108,7 @@ class RedisServer(Base):
         content = file('conf/redis.conf').read()
         content = T(content).s(self.args)
 
-        self.args['local_config'] = T('conf/redis-$port.conf').s(self.args)
+        self.args['local_config'] = T('tmp/redis-$port.conf').s(self.args)
         fout = open(self.args['local_config'], 'w+')
         fout.write(content)
         fout.close()
@@ -162,7 +162,7 @@ sentinel parallel-syncs redis-$port 1
         content = file('conf/sentinel.conf').read()
         content = T(content).s(self.args)
 
-        self.args['local_config'] = T('conf/sentinel-$port.conf').s(self.args)
+        self.args['local_config'] = T('tmp/sentinel-$port.conf').s(self.args)
         fout = open(self.args['local_config'], 'w+')
         fout.write(content)
         fout.write(self._gen_conf_section())
@@ -222,10 +222,12 @@ class Cluster():
         for r in self.all_redis:
             r.status()
         for r in self.all_sentinel:
-            r.stop()
+            r.status()
 
     def log(self):
         for r in self.all_redis:
+            r.log()
+        for r in self.all_sentinel:
             r.log()
 
 def discover_op():
