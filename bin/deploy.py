@@ -149,11 +149,11 @@ class Sentinel(RedisServer):
 
     def _gen_conf_section(self):
         template = '''\
-sentinel monitor redis-$port $host $port 2
-sentinel down-after-milliseconds  redis-$port 60000
-sentinel failover-timeout redis-$port 180000
-#sentinel can-failover redis-$port yes TODO: the new version has no this cfg
-sentinel parallel-syncs redis-$port 1
+sentinel monitor $server_name $host $port 2
+sentinel down-after-milliseconds  $server_name 60000
+sentinel failover-timeout $server_name 180000
+#sentinel can-failover $server_name yes TODO: the new version has no this cfg
+sentinel parallel-syncs $server_name 1
         '''
         cfg = '\n'.join([T(template).s(master.args) for master in self.masters])
         return cfg
@@ -179,56 +179,157 @@ sentinel parallel-syncs redis-$port 1
 
         self._gen_conf()
 
+class NutCracker(Base):
+    def __init__(self, user, host_port, path, masters):
+        self.masters = masters
+        self.args = {
+                'user':  user,
+                'host':  host_port.split(':')[0],
+                'port':  int(host_port.split(':')[1]),
+                'path':  path,
+                }
+        self.args.update(conf.binarys)
+
+        self.args['conf'] = T('$path/conf/nutcracker-$port.conf').s(self.args)
+        self.args['pidfile'] = T('$path/log/nutcracker-$port.pid').s(self.args)
+        self.args['logfile'] = T('$path/log/nutcracker-$port.log').s(self.args)
+        self.args['status_port'] = self.args['port'] + 1000
+
+        self.args['startcmd'] = T('bin/nutcracker -d -c $conf -o $logfile -p $pidfile -s $status_port').s(self.args)
+
+    def __str__(self):
+        return T('[NutCracker:$host:$port]').s(self.args)
+
+    def _alive(self):
+        cmd = T('curl $host:$status_port').s(self.args)
+        ret = self._run(cmd)
+        if ret.find('service') > -1:
+            return True
+        return False
+
+    def _gen_conf_section(self):
+        template = '    - $host:$port:1 $server_name'
+        cfg = '\n'.join([T(template).s(master.args) for master in self.masters])
+        return cfg
+
+    def _gen_conf(self):
+        content = '''
+$cluster_name:
+  listen: $host:$port
+  hash: fnv1a_64
+  distribution: modula
+  preconnect: true
+  auto_eject_hosts: false
+  redis: true
+  backlog: 512
+  client_connections: 0
+  server_connections: 1
+  server_retry_timeout: 2000
+  server_failure_limit: 2
+  servers:
+'''
+        content = T(content).s(self.args)
+
+        self.args['local_config'] = T('tmp/nutcracker-$port.conf').s(self.args)
+        fout = open(self.args['local_config'], 'w+')
+        fout.write(content)
+        fout.write(self._gen_conf_section())
+        fout.close()
+
+        cmd = T('rsync -avP $local_config $user@$host:$path/conf/ 1>/dev/null 2>/dev/null').s(self.args)
+        self._run(cmd)
+
+    def deploy(self):
+        self._init_dir()
+
+        cmd = T('rsync -avP $nutcracker $user@$host:$path/bin/ 1>/dev/null 2>/dev/null').s(self.args)
+        self._run(cmd)
+
+        self._gen_conf()
+
+    def status(self):
+        cmd = T('curl $host:$status_port 2>/dev/null').s(self.args)
+        ret = self._run(cmd)
+        if ret:
+            print common.json_decode(ret)
+        else:
+            logging.error('%s is down' % self)
+
 class Cluster():
     def __init__(self, args):
         self.args = args
         self.all_redis = [ RedisServer(self.args['user'], hp, path) for hp, path in self.args['redis'] ]
         masters = self.all_redis[::2]
+        for m in masters:
+            m.args['cluster_name'] = args['cluster_name']
+            m.args['server_name'] = T('$cluster_name-$port').s(m.args)
+
         self.all_sentinel = [Sentinel(self.args['user'], hp, path, masters) for hp, path in self.args['sentinel'] ]
+        self.all_nutcracker = [NutCracker(self.args['user'], hp, path, masters) for hp, path in self.args['nutcracker'] ]
+        for m in self.all_nutcracker:
+            m.args['cluster_name'] = args['cluster_name']
 
     def deploy(self):
-        for r in self.all_redis:
-            if not r._alive():
-                r.deploy()
+        for s in self.all_redis:
+            if not s._alive():
+                s.deploy()
             else:
-                logging.info('%s is alive' % r)
+                logging.info('%s is alive' % s)
 
         for s in self.all_sentinel:
             if not s._alive():
                 s.deploy()
             else:
-                logging.info('%s is alive' % r)
+                logging.info('%s is alive' % s)
+
+        for s in self.all_nutcracker:
+            if not s._alive():
+                s.deploy()
+            else:
+                logging.info('%s is alive' % s)
 
     def start(self):
-        for r in self.all_redis:
-            if not r._alive():
-                r.start()
+        for s in self.all_redis:
+            if not s._alive():
+                s.start()
             else:
-                logging.info('%s is alive' % r)
+                logging.info('%s is alive' % s)
 
         for s in self.all_sentinel:
             if not s._alive():
                 s.start()
             else:
-                logging.info('%s is alive' % r)
+                logging.info('%s is alive' % s)
+
+        for s in self.all_nutcracker:
+            if not s._alive():
+                s.start()
+            else:
+                logging.info('%s is alive' % s)
 
     def stop(self):
-        for r in self.all_redis:
-            r.stop()
-        for r in self.all_sentinel:
-            r.stop()
+        for s in self.all_redis:
+            s.stop()
+        for s in self.all_sentinel:
+            s.stop()
+        for s in self.all_nutcracker:
+            s.stop()
 
     def status(self):
-        for r in self.all_redis:
-            r.status()
-        for r in self.all_sentinel:
-            r.status()
+        for s in self.all_redis:
+            s.status()
+        for s in self.all_sentinel:
+            s.status()
+        for s in self.all_nutcracker:
+            s.status()
 
     def log(self):
-        for r in self.all_redis:
-            r.log()
-        for r in self.all_sentinel:
-            r.log()
+        for s in self.all_redis:
+            s.log()
+        for s in self.all_sentinel:
+            s.log()
+        for s in self.all_nutcracker:
+            s.log()
 
 def discover_op():
     import inspect
@@ -241,6 +342,7 @@ def discover_cluster():
     return sets
 
 def main():
+    sys.argv.insert(1, '-v') # auto -v
     parser = argparse.ArgumentParser()
     parser.add_argument('op', choices=discover_op(),
         help='start/stop/clean cluster')
