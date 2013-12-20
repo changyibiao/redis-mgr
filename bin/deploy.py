@@ -40,6 +40,8 @@ class Base:
 
     def start(self):
         self._remote_run(self.args['startcmd'])
+        if not self._alive():
+            logging.error('start fail')
 
     def stop(self):
         cmd = T('cat $pidfile | xargs kill').s(self.args)
@@ -97,10 +99,18 @@ class RedisServer(Base):
     def __str__(self):
         return T('[RedisServer:$host:$port]').s(self.args)
 
+    def _info(self):
+        cmd = T('$redis_cli -h $host -p $port INFO').s(self.args)
+        return self._run(cmd)
+
+    def _info_dict(self):
+        info = self._info()
+        info = [line.split(':') for line in info.split('\r\n')]
+        info = [i for i in info if len(i)>1]
+        return dict(info)
+
     def _alive(self):
-        cmd = T('$redis_cli -h $host -p $port info').s(self.args)
-        ret = self._run(cmd)
-        if ret.find('redis_version:') > -1:
+        if self._info().find('redis_version:') > -1:
             return True
         return False
 
@@ -125,8 +135,23 @@ class RedisServer(Base):
         self._gen_conf()
 
     def status(self):
-        cmd = T('$redis_cli -h $host -p $port info').s(self.args)
-        print self._run(cmd)
+        print self._info()
+
+    def isslaveof(self, master_host, master_port):
+        info = self._info_dict()
+        if 'master_host' in info and info['master_host'] == master_host and int(info['master_port']) == master_port:
+            logging.debug('already slave of %s:%s' % (master_host, master_port))
+            return True
+
+    def slaveof(self, master_host, master_port):
+        cmd = 'SLAVEOF %s %s' % (master_host, master_port)
+        return self.rediscmd(cmd)
+
+    def rediscmd(self, cmd):
+        args = copy.deepcopy(self.args)
+        args['cmd'] = cmd
+        cmd = T('$redis_cli -h $host -p $port $cmd').s(args)
+        return self._run(cmd)
 
 class Sentinel(RedisServer):
     def __init__(self, user, host_port, path, masters):
@@ -272,30 +297,43 @@ class Cluster():
     def _doit(self, op, skip_if_alive):
         logging.notice('%s redis' % (op, ))
         for s in self.all_redis:
-            logging.info('%s %s' % (op, s))
             if skip_if_alive and s._alive():
                 logging.info('%s is alive' % s)
-            eval('s.%s()' % op)
+            else:
+                logging.info('%s %s' % (op, s))
+                eval('s.%s()' % op)
 
         logging.notice('%s sentinel' % (op, ))
         for s in self.all_sentinel:
-            logging.info('%s %s' % (op, s))
             if skip_if_alive and s._alive():
                 logging.info('%s is alive' % s)
-            eval('s.%s()' % op)
+            else:
+                logging.info('%s %s' % (op, s))
+                eval('s.%s()' % op)
 
         logging.notice('%s nutcracker' % (op, ))
         for s in self.all_nutcracker:
-            logging.info('%s %s' % (op, s))
             if skip_if_alive and s._alive():
                 logging.info('%s is alive' % s)
-            eval('s.%s()' % op)
+            else:
+                logging.info('%s %s' % (op, s))
+                eval('s.%s()' % op)
 
     def deploy(self):
         self._doit('deploy', True)
 
     def start(self):
         self._doit('start', True)
+
+        logging.notice('setup master->slave')
+        rs = self.all_redis
+        pairs = [rs[i:i+2] for i in range(0, len(rs), 2)]
+        for m, s in pairs:
+            if s.isslaveof(m.args['host'], m.args['port']):
+                logging.info('%s->%s is ok!' % (m,s ))
+            else:
+                logging.info('setup %s->%s' % (m,s ))
+                s.slaveof(m.args['host'], m.args['port'])
 
     def stop(self):
         self._doit('stop', False)
