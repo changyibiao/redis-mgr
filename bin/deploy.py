@@ -45,10 +45,11 @@ class Base:
 
     def stop(self):
         cmd = T('cat $pidfile | xargs kill').s(self.args)
-        self._remote_run(cmd)
+        if self._remote_run(cmd):
+            logging.warn('stop failed %s' % self)
 
     def kill(self):
-        cmd = T('cat $pidfile | xargs kill -9').s(self.args)
+        cmd = T("pkill -f '$runcmd'").s(self.args)
         self._remote_run(cmd)
 
     def status(self):
@@ -89,6 +90,7 @@ class RedisServer(Base):
                 }
         self.args.update(conf.binarys)
         self.args['startcmd'] = T('bin/redis-server conf/redis-$port.conf').s(self.args)
+        self.args['runcmd'] = T('redis-server \*:$port').s(self.args)
 
         self.args['conf'] = T('$path/conf/redis-$port.conf').s(self.args)
         self.args['pidfile'] = T('$path/log/redis-$port.pid').s(self.args)
@@ -135,7 +137,11 @@ class RedisServer(Base):
         self._gen_conf()
 
     def status(self):
-        print self._info()
+        info = self._info()
+        if info.find('redis_version:') == -1:
+            logging.error('%s is down' % self)
+        else:
+            print info
 
     def isslaveof(self, master_host, master_port):
         info = self._info_dict()
@@ -164,6 +170,7 @@ class Sentinel(RedisServer):
                 }
         self.args.update(conf.binarys)
         self.args['startcmd'] = T('bin/redis-sentinel conf/sentinel-$port.conf').s(self.args)
+        self.args['runcmd'] = T('redis-sentinel \*:$port').s(self.args)
 
         self.args['conf'] = T('$path/conf/sentinel-$port.conf').s(self.args)
         self.args['pidfile'] = T('$path/log/sentinel-$port.pid').s(self.args)
@@ -221,6 +228,7 @@ class NutCracker(Base):
         self.args['status_port'] = self.args['port'] + 1000
 
         self.args['startcmd'] = T('bin/nutcracker -d -c $conf -o $logfile -p $pidfile -s $status_port').s(self.args)
+        self.args['runcmd'] = self.args['startcmd']
 
     def __str__(self):
         return T('[NutCracker:$host:$port]').s(self.args)
@@ -240,7 +248,7 @@ class NutCracker(Base):
     def _gen_conf(self):
         content = '''
 $cluster_name:
-  listen: $host:$port
+  listen: 0.0.0.0:$port
   hash: fnv1a_64
   distribution: modula
   preconnect: true
@@ -297,26 +305,26 @@ class Cluster():
     def _doit(self, op, skip_if_alive):
         logging.notice('%s redis' % (op, ))
         for s in self.all_redis:
+            logging.info('%s %s' % (op, s))
             if skip_if_alive and s._alive():
-                logging.info('%s is alive' % s)
+                logging.warn('%s is alive' % s)
             else:
-                logging.info('%s %s' % (op, s))
                 eval('s.%s()' % op)
 
         logging.notice('%s sentinel' % (op, ))
         for s in self.all_sentinel:
+            logging.info('%s %s' % (op, s))
             if skip_if_alive and s._alive():
-                logging.info('%s is alive' % s)
+                logging.warn('%s is alive' % s)
             else:
-                logging.info('%s %s' % (op, s))
                 eval('s.%s()' % op)
 
         logging.notice('%s nutcracker' % (op, ))
         for s in self.all_nutcracker:
+            logging.info('%s %s' % (op, s))
             if skip_if_alive and s._alive():
-                logging.info('%s is alive' % s)
+                logging.warn('%s is alive' % s)
             else:
-                logging.info('%s %s' % (op, s))
                 eval('s.%s()' % op)
 
     def deploy(self):
@@ -330,7 +338,7 @@ class Cluster():
         pairs = [rs[i:i+2] for i in range(0, len(rs), 2)]
         for m, s in pairs:
             if s.isslaveof(m.args['host'], m.args['port']):
-                logging.info('%s->%s is ok!' % (m,s ))
+                logging.warn('%s->%s is ok!' % (m,s ))
             else:
                 logging.info('setup %s->%s' % (m,s ))
                 s.slaveof(m.args['host'], m.args['port'])
@@ -343,6 +351,9 @@ class Cluster():
 
     def log(self):
         self._doit('log', False)
+
+    def kill(self):
+        self._doit('kill', False)
 
 def discover_op():
     import inspect

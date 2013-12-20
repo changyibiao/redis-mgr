@@ -21,17 +21,17 @@ binarys = {
 cluster0 = {
     'cluster_name': 'cluster0',
     'user': 'ning',
+    'sentinel':[
+        ('127.0.0.5:21001', '/tmp/r/sentinel-21001'),
+        ('127.0.0.5:21002', '/tmp/r/sentinel-21002'),
+        ('127.0.0.5:21003', '/tmp/r/sentinel-21003'),
+    ],
     'redis': [
         # master(host:port, install path)       ,  slave(host:port, install path)
         ('127.0.0.5:20000', '/tmp/r/redis-20000'), ('127.0.0.5:30000', '/tmp/r/redis-30000'),
         ('127.0.0.5:20001', '/tmp/r/redis-20001'), ('127.0.0.5:30001', '/tmp/r/redis-30001'),
         ('127.0.0.5:20002', '/tmp/r/redis-20002'), ('127.0.0.5:30002', '/tmp/r/redis-30002'),
         ('127.0.0.5:20003', '/tmp/r/redis-20003'), ('127.0.0.5:30003', '/tmp/r/redis-30003'),
-    ],
-    'sentinel':[
-        ('127.0.0.5:21001', '/tmp/r/sentinel-21001'),
-        ('127.0.0.5:21002', '/tmp/r/sentinel-21002'),
-        ('127.0.0.5:21003', '/tmp/r/sentinel-21003'),
     ],
     'nutcracker': [
         ('127.0.0.5:22000', '/tmp/r/nutcracker-22000'),
