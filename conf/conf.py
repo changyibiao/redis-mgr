@@ -22,8 +22,8 @@ cluster0 = {
     'cluster_name': 'cluster0',
     'user': 'ning',
     'redis': [
-        # host:port, install path
-        ('127.0.0.5:20000', '/tmp/r/redis-20000'), ('127.0.0.5:30000', '/tmp/r/redis-30000'), #(示例配置, 主从端口分别用2xxxx/3xxxx)
+        # master(host:port, install path)       ,  slave(host:port, install path)
+        ('127.0.0.5:20000', '/tmp/r/redis-20000'), ('127.0.0.5:30000', '/tmp/r/redis-30000'),
         ('127.0.0.5:20001', '/tmp/r/redis-20001'), ('127.0.0.5:30001', '/tmp/r/redis-30001'),
         ('127.0.0.5:20002', '/tmp/r/redis-20002'), ('127.0.0.5:30002', '/tmp/r/redis-30002'),
         ('127.0.0.5:20003', '/tmp/r/redis-20003'), ('127.0.0.5:30003', '/tmp/r/redis-30003'),

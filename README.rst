@@ -1,5 +1,5 @@
-README
-######
+deploy.py
+=========
 
 this script will deploy a redis cluster with:
 
@@ -8,7 +8,7 @@ this script will deploy a redis cluster with:
 - twemproxy
 
 config
-======
+------
 
 ::
 
@@ -63,7 +63,7 @@ and ``twemproxy`` config::
         - 127.0.0.5:20001:1 cluster0-20001
 
 usage
-=====
+-----
 
 ::
 
@@ -103,8 +103,32 @@ example::
     2013-12-18 14:34:18,516 [MainThread] [INFO] start [NutCracker:127.0.0.5:22002]
 
 Dependency
-==========
+----------
 
 - pcl: https://github.com/idning/pcl
+
+
+gen_conf.py
+===========
+
+use the config::
+
+    BASEDIR = '/tmp/r'
+    HOSTS = [
+            '127.0.1.1',
+            '127.0.1.2',
+            '127.0.1.3',
+            '127.0.1.4',
+            '127.0.1.5',
+            '127.0.1.6',
+            '127.0.1.7',
+            '127.0.1.8',
+            ]
+    MASTER_PER_MACHINE = 2
+    SLAVE_PORT_INCREASE = 10000
+
+it will gen the deploy.py config like this:
+
+.. image:: doc/twemproxy-sentinel-cluster.png
 
 
