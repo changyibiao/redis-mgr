@@ -27,7 +27,7 @@ SLAVE_PORT_INCREASE = 10000
 port = 20000
 for i in range(len(HOSTS)):
     for j in range(MASTER_PER_MACHINE):
-        slave_port = port + SLAVE_PORT_INCREASE
+        slave_port = port + 1000
 
         m = HOSTS[i]
         s = HOSTS[(i+1)%len(HOSTS)]
