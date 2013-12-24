@@ -247,7 +247,7 @@ class NutCracker(Base):
         self.args['logfile'] = T('$path/log/nutcracker-$port.log').s(self.args)
         self.args['status_port'] = self.args['port'] + 1000
 
-        self.args['startcmd'] = T('bin/nutcracker -d -v 11 -c $conf -o $logfile -p $pidfile -s $status_port').s(self.args)
+        self.args['startcmd'] = T('bin/nutcracker -d -c $conf -o $logfile -p $pidfile -s $status_port').s(self.args)
         self.args['runcmd'] = self.args['startcmd']
 
     def __str__(self):
@@ -269,12 +269,13 @@ class NutCracker(Base):
         content = '''
 $cluster_name:
   listen: 0.0.0.0:$port
-  hash: murmur
+  hash: fnv1a_64
   distribution: modula
   preconnect: true
   auto_eject_hosts: false
   redis: true
   backlog: 512
+  timeout: 400
   client_connections: 0
   server_connections: 1
   server_retry_timeout: 2000
@@ -461,6 +462,12 @@ class Cluster():
     def monitor(self):
         '''
         monitor status of the cluster
+        '''
+        pass
+
+    def randomdown(self):
+        '''
+        random kill master every second (for test)
         '''
         pass
 
