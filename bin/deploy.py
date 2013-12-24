@@ -31,6 +31,9 @@ import conf
 def strstr(s1, s2):
     return s1.find(s2) != -1
 
+def lets_sleep(SLEEP_TIME = 0.1):
+    time.sleep(SLEEP_TIME)
+
 class Base:
     '''
     子类需要实现 _alive, deploy, status, 并初始化args包含如下变量
@@ -48,18 +51,27 @@ class Base:
 
     def start(self):
         self._run(self._remote_start_cmd())
+        lets_sleep()
         if not self._alive():
-            logging.error('start fail')
+            logging.error('start failed')
 
     def stop(self):
         if self._run(self._remote_stop_cmd()):
             logging.warn('stop failed %s' % self)
+            return
+        lets_sleep()
+        if self._alive():
+            logging.error('stop failed')
 
     def kill(self):
         self._run(self._remote_kill_cmd())
+        lets_sleep()
+        if self._alive():
+            logging.error('kill failed')
 
     def printcmd(self):
         print common.to_blue(self), self._remote_start_cmd()
+        print common.to_blue(self), self._remote_stop_cmd()
         print common.to_blue(self), self._remote_kill_cmd()
 
     def status(self):
@@ -96,7 +108,9 @@ class Base:
             return T('ssh -n -f $user@$host "$cmd"').s(args)
 
     def _run(self, raw_cmd):
-        return common.system(raw_cmd, logging.debug)
+        ret = common.system(raw_cmd, logging.debug)
+        logging.debug('return : ' + ret)
+        return ret
 
 
 class RedisServer(Base):
@@ -126,7 +140,7 @@ class RedisServer(Base):
 
     def _info_dict(self):
         info = self._info()
-        info = [line.split(':') for line in info.split('\r\n')]
+        info = [line.split(':', 1) for line in info.split('\r\n') if not line.startswith('#')]
         info = [i for i in info if len(i)>1]
         return dict(info)
 
@@ -254,9 +268,7 @@ class NutCracker(Base):
         return T('[NutCracker:$host:$port]').s(self.args)
 
     def _alive(self):
-        cmd = T('curl $host:$status_port').s(self.args)
-        ret = self._run(cmd)
-        if ret.find('service') > -1:
+        if self._info():
             return True
         return False
 
@@ -301,11 +313,17 @@ $cluster_name:
 
         self._gen_conf()
 
-    def status(self):
-        cmd = T('curl $host:$status_port 2>/dev/null').s(self.args)
+    def _info(self):
+        cmd = T('nc $host $status_port').s(self.args)
         ret = self._run(cmd)
         if ret:
-            print common.json_decode(ret)
+            return common.json_decode(ret)
+        return None
+
+    def status(self):
+        ret = self._info()
+        if ret:
+            print 'uptime: ', ret['uptime']
         else:
             logging.error('%s is down' % self)
 
@@ -444,7 +462,12 @@ class Cluster():
         for i in xrange(1000*1000):
             if i%10 == 0:
                 print header
-            print ' '.join([ '%5s' % s._info_dict()[what] for s in self.all_masters])
+            def get_v(s):
+                info = s._info_dict()
+                if what in info:
+                    return info[what]
+                return '-'
+            print ' '.join([ '%5s' % get_v(s) for s in self.all_masters])
             time.sleep(1)
 
     def mm(self):
@@ -499,7 +522,7 @@ def main():
     sys.argv.insert(1, '-v') # auto -v
     parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter)
 
-    parser.add_argument('target', metavar='clustername', choices=discover_cluster(), help='cluster target ')
+    parser.add_argument('target', metavar='clustername', choices=discover_cluster(), help=str(discover_cluster()))
     parser.add_argument('op', metavar='op', choices=discover_op(),
         help=gen_op_help())
     parser.add_argument('cmd', nargs='?', help='the redis/ssh cmd like "INFO"')
