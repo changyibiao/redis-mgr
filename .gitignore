@@ -1,3 +1,6 @@
 *.pyc
 log/*.log
 log/*.conf
+list
+t
+conf/conf_inner.py

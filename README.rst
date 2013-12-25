@@ -147,8 +147,19 @@ monitor qps/memory::
     46639     8     7     7
     42265     6     5     7
 
-gen_conf.py
-===========
+run benchmark::
+
+    $ ./bin/deploy.py cluster_offline0 bench
+    $ ./bin/deploy.py cluster_offline0 mbench
+
+modify config::
+
+    $ ./bin/deploy.py cluster_offline0 mastercmd ' CONFIG GET save' -v
+    $ ./bin/deploy.py cluster_offline0 mastercmd 'CONFIG SET save "10000 1000000"' -v
+
+
+gen_conf
+========
 
 use the config::
 

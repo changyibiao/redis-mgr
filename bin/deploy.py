@@ -9,7 +9,10 @@ import re
 import sys
 import time
 import copy
+import thread
+import threading
 import logging
+import inspect
 import argparse
 from argparse import RawTextHelpFormatter
 
@@ -26,8 +29,16 @@ sys.path.append(os.path.join(WORKDIR, 'lib/'))
 sys.path.append(os.path.join(WORKDIR, 'conf/'))
 
 
-import conf
+# import config in conf/xxx
+if 'REDIS_DEPLOY_CONFIG' not in os.environ:
+    logging.error('please export REDIS_DEPLOY_CONFIG=conf')
+    #config_name = 'conf'
+    exit(1)
 
+config_name = os.environ['REDIS_DEPLOY_CONFIG']
+conf = __import__(config_name, globals(), locals(), [], 0)        #import config_module
+
+#utils 
 def strstr(s1, s2):
     return s1.find(s2) != -1
 
@@ -36,7 +47,7 @@ def lets_sleep(SLEEP_TIME = 0.1):
 
 class Base:
     '''
-    子类需要实现 _alive, deploy, status, 并初始化args包含如下变量
+    the sub class should implement: _alive, deploy, status, and init self.args
     '''
     def __init__(self):
         self.args = {
@@ -130,7 +141,6 @@ class RedisServer(Base):
         self.args['logfile'] = T('$path/log/redis-$port.log').s(self.args)
         self.args['dir']     = T('$path/data').s(self.args)
 
-
     def __str__(self):
         return T('[RedisServer:$host:$port]').s(self.args)
 
@@ -192,6 +202,7 @@ class RedisServer(Base):
         args['cmd'] = cmd
         cmd = T('$redis_cli -h $host -p $port $cmd').s(args)
         return self._run(cmd)
+
 
 class Sentinel(RedisServer):
     def __init__(self, user, host_port, path, masters):
@@ -327,6 +338,15 @@ $cluster_name:
         else:
             logging.error('%s is down' % self)
 
+
+class BenchThread(threading.Thread):
+    def __init__ (self, cmd):
+        threading.Thread.__init__(self)
+        self.cmd = cmd
+    def run(self):
+        common.system(self.cmd)
+
+
 class Cluster():
     def __init__(self, args):
         self.args = args
@@ -418,10 +438,7 @@ class Cluster():
         '''
         self._doit('kill', False)
 
-    def rediscmd(self, cmd, sleeptime=.1):
-        '''
-        run redis command against all redis instance, like 'INFO, GET xxxx'
-        '''
+    def _rediscmd(self, cmd, sleeptime=.1):
         for s in self.all_redis:
             logging.info('%s: %s' % (s, cmd))
             time.sleep(sleeptime)
@@ -445,17 +462,23 @@ class Cluster():
     def reconfig_proxy(self):
         pass
 
+    def rediscmd(self, cmd):
+        '''
+        run redis command against all redis instance, like 'INFO, GET xxxx'
+        '''
+        self._rediscmd(cmd)
+
     def rdb(self):
         '''
         do rdb in all redis instance
         '''
-        self.rediscmd('BGSAVE', 1)
+        self._rediscmd('BGSAVE', 1)
 
     def aof_rewrite(self):
         '''
         do aof_rewrite in all redis instance
         '''
-        self.rediscmd('BGREWRITEAOF', 1)
+        self._rediscmd('BGREWRITEAOF', 1)
 
     def _monitor_redis(self, what):
         header = common.to_blue(' '.join(['%5s' % s.args['port'] for s in self.all_masters]))
@@ -494,7 +517,22 @@ class Cluster():
         '''
         pass
 
-import inspect
+    def bench(self):
+        '''
+        run benchmark against proxy
+        '''
+        for s in self.all_nutcracker:
+            cmd = T('redis-benchmark -h $host -p $port -r 10000000 -t set,get -n 1000000 -c 10 ').s(s.args)
+            BenchThread(cmd).start()
+
+    def mbench(self):
+        '''
+        run benchmark against redis master
+        '''
+        for s in self.all_masters:
+            cmd = T('redis-benchmark -h $host -p $port -r 10000000 -t set,get -n 1000000 -c 10 ').s(s.args)
+            BenchThread(cmd).start()
+
 def discover_op():
     methods = inspect.getmembers(Cluster, predicate=inspect.ismethod)
     sets = [m[0] for m in methods if not m[0].startswith('_')]
@@ -519,10 +557,10 @@ def discover_cluster():
     return sets
 
 def main():
-    sys.argv.insert(1, '-v') # auto -v
+    sys.argv.insert(1, '-v') # force -v
     parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter)
 
-    parser.add_argument('target', metavar='clustername', choices=discover_cluster(), help=str(discover_cluster()))
+    parser.add_argument('target', metavar='clustername', choices=discover_cluster(), help=' / '.join(discover_cluster()))
     parser.add_argument('op', metavar='op', choices=discover_op(),
         help=gen_op_help())
     parser.add_argument('cmd', nargs='?', help='the redis/ssh cmd like "INFO"')
