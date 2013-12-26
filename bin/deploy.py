@@ -101,9 +101,16 @@ class Base:
             return
 
         t1 = time.time()
+        sleeptime = .1
         self._run(self._remote_start_cmd())
+
         while not self._alive():
-            lets_sleep()
+            lets_sleep(sleeptime)
+            if sleeptime < 5:
+                sleeptime *= 2
+            else:
+                logging.warn('still not alive')
+
         t2 = time.time()
         logging.info('%s start ok in %.2f seconds' %(self, t2-t1) )
 
@@ -128,6 +135,13 @@ class Base:
     def log(self):
         cmd = TT('tail $logfile', self.args)
         logging.info('log of %s' % self)
+        print self._run(self._remote_cmd(cmd))
+
+    def _bench(self, cmd):
+        '''
+        run a benchmark cmd on this remote machine
+        '''
+        #logging.info('bench of %s' % self)
         print self._run(self._remote_cmd(cmd))
 
     def _alive(self):
@@ -157,7 +171,7 @@ class Base:
 
     def _run(self, raw_cmd):
         ret = common.system(raw_cmd, logging.debug)
-        logging.debug('return : ' + ret)
+        logging.debug('return : ' + common.shorten(ret))
         return ret
 
 
@@ -330,11 +344,12 @@ $cluster_name:
 
 
 class BenchThread(threading.Thread):
-    def __init__ (self, cmd):
+    def __init__ (self, redis, cmd):
         threading.Thread.__init__(self)
+        self.redis = redis
         self.cmd = cmd
     def run(self):
-        common.system(self.cmd)
+        self.redis._bench(self.cmd)
 
 
 class Cluster():
@@ -483,7 +498,7 @@ class Cluster():
         run benchmark against proxy
         '''
         for s in self.all_nutcracker:
-            cmd = T('redis-benchmark -h $host -p $port -r 10000000 -t set,get -n 1000000 -c 10 ').s(s.args)
+            cmd = T('bin/redis-benchmark -h $host -p $port -r 10000000 -t set,get -n 1000000 -c 10 ').s(s.args)
             BenchThread(cmd).start()
 
     def mbench(self):
@@ -491,8 +506,14 @@ class Cluster():
         run benchmark against redis master
         '''
         for s in self.all_masters:
-            cmd = T('redis-benchmark -h $host -p $port -r 10000000 -t set,get -n 1000000 -c 10 ').s(s.args)
-            BenchThread(cmd).start()
+            cmd = T('bin/redis-benchmark -h $host -p $port -r 10000000 -t set,get -n 1000000 -c 10 ').s(s.args)
+            BenchThread(s, cmd).start()
+
+    def stopbench(self):
+        '''
+        you will need this for stop benchmark
+        '''
+        return self.sshcmd("pkill -f 'bin/redis-benchmark'")
 
     def sshcmd(self, cmd):
         '''

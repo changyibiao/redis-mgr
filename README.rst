@@ -94,28 +94,26 @@ usage
 start cluster::
 
     $ ./bin/deploy.py cluster0 deploy
+
     $ ./bin/deploy.py cluster0 start
-    2013-12-18 14:34:15,934 [MainThread] [INFO] start running: ./bin/deploy.py -v start cluster0
-    2013-12-18 14:34:15,934 [MainThread] [INFO] Namespace(logfile='log/deploy.log', op='start', target='cluster0', verbose=1)
-    2013-12-18 14:34:15,936 [MainThread] [NOTICE] start redis
-    2013-12-18 14:34:15,936 [MainThread] [INFO] start [RedisServer:127.0.0.5:20000]
-    2013-12-18 14:34:16,122 [MainThread] [INFO] start [RedisServer:127.0.0.5:30000]
-    2013-12-18 14:34:16,301 [MainThread] [INFO] start [RedisServer:127.0.0.5:20001]
-    2013-12-18 14:34:16,489 [MainThread] [INFO] start [RedisServer:127.0.0.5:30001]
-    2013-12-18 14:34:16,691 [MainThread] [INFO] start [RedisServer:127.0.0.5:20002]
-    2013-12-18 14:34:16,905 [MainThread] [INFO] start [RedisServer:127.0.0.5:30002]
-    2013-12-18 14:34:17,102 [MainThread] [INFO] start [RedisServer:127.0.0.5:20003]
-    2013-12-18 14:34:17,310 [MainThread] [INFO] start [RedisServer:127.0.0.5:30003]
-
-    2013-12-18 14:34:17,513 [MainThread] [NOTICE] start sentinel
-    2013-12-18 14:34:17,513 [MainThread] [INFO] start [Sentinel:127.0.0.5:21001]
-    2013-12-18 14:34:17,706 [MainThread] [INFO] start [Sentinel:127.0.0.5:21002]
-    2013-12-18 14:34:17,913 [MainThread] [INFO] start [Sentinel:127.0.0.5:21003]
-
-    2013-12-18 14:34:18,102 [MainThread] [NOTICE] start nutcracker
-    2013-12-18 14:34:18,102 [MainThread] [INFO] start [NutCracker:127.0.0.5:22000]
-    2013-12-18 14:34:18,325 [MainThread] [INFO] start [NutCracker:127.0.0.5:22001]
-    2013-12-18 14:34:18,516 [MainThread] [INFO] start [NutCracker:127.0.0.5:22002]
+    2013-12-26 14:47:47,385 [MainThread] [NOTICE] start redis
+    2013-12-26 14:47:47,622 [MainThread] [INFO] [redis:127.0.0.5:20000] start ok in 0.23 seconds
+    2013-12-26 14:47:47,848 [MainThread] [INFO] [redis:127.0.0.5:21000] start ok in 0.22 seconds
+    2013-12-26 14:47:48,099 [MainThread] [INFO] [redis:127.0.0.5:20001] start ok in 0.24 seconds
+    2013-12-26 14:47:48,369 [MainThread] [INFO] [redis:127.0.0.5:21001] start ok in 0.27 seconds
+    2013-12-26 14:47:50,788 [MainThread] [NOTICE] start sentinel
+    2013-12-26 14:47:51,186 [MainThread] [INFO] [sentinel:127.0.0.5:29001] start ok in 0.39 seconds
+    2013-12-26 14:47:51,452 [MainThread] [INFO] [sentinel:127.0.0.5:29002] start ok in 0.26 seconds
+    2013-12-26 14:47:51,820 [MainThread] [INFO] [sentinel:127.0.0.5:29003] start ok in 0.35 seconds
+    2013-12-26 14:47:51,820 [MainThread] [NOTICE] start nutcracker
+    2013-12-26 14:47:52,082 [MainThread] [INFO] [nutcracker:127.0.0.5:22000] start ok in 0.26 seconds
+    2013-12-26 14:47:52,364 [MainThread] [INFO] [nutcracker:127.0.0.5:22001] start ok in 0.28 seconds
+    2013-12-26 14:47:52,573 [MainThread] [INFO] [nutcracker:127.0.0.5:22002] start ok in 0.21 seconds
+    2013-12-26 14:47:52,573 [MainThread] [NOTICE] setup master->slave
+    2013-12-26 14:47:52,580 [MainThread] [INFO] setup [redis:127.0.0.5:20000]->[redis:127.0.0.5:21000]
+    2013-12-26 14:47:52,580 [MainThread] [INFO] [redis:127.0.0.5:21000] /home/ning/idning-github/redis/src/redis-cli -h 127.0.0.5 -p 21000 SLAVEOF 127.0.0.5 20000
+    OK
+    ...
 
 run cmd on each master::
 
@@ -181,4 +179,10 @@ Dependency
 ==========
 
 - pcl: https://github.com/idning/pcl
+
+Authors
+=======
+
+- @idning
+- @cen-li
 
