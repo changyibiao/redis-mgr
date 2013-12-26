@@ -38,77 +38,107 @@ if 'REDIS_DEPLOY_CONFIG' not in os.environ:
 config_name = os.environ['REDIS_DEPLOY_CONFIG']
 conf = __import__(config_name, globals(), locals(), [], 0)        #import config_module
 
-#utils 
+#utils
 def strstr(s1, s2):
     return s1.find(s2) != -1
 
 def lets_sleep(SLEEP_TIME = 0.1):
     time.sleep(SLEEP_TIME)
 
+def TT(template, args): #todo: modify all
+    return T(template).substitute(args)
+
 class Base:
     '''
     the sub class should implement: _alive, status, and init self.args
     '''
-    def __init__(self):
+    def __init__(self, name, user, host_port, path):
         self.args = {
+            'name'      : name,
+            'user'      : user,
+            'host'      : host_port.split(':')[0],
+            'port'      : int(host_port.split(':')[1]),
+            'path'      : path,
+
             'localdir'  : '',     #files to deploy #TODO, rsync is right or not ??
+
             'startcmd'  : '',     #startcmd and runcmd will used to generate the control script
             'runcmd'    : '',
             'logfile'   : '',
         }
 
+    def __str__(self):
+        return TT('[$name:$host:$port]', self.args)
+
     def deploy(self):
+        self.args['localdir'] = TT('tmp/$name-$host-$port', self.args)
+        self._run(TT('mkdir -p $localdir', self.args))
+
+        self._gen_control_script()
         self._init_dir()
 
-        cmd = T('rsync -avP $localdir $user@$host:$path/ 1>/dev/null 2>/dev/null').s(self.args)
+        cmd = T('rsync -ravP $localdir/ $user@$host:$path 1>/dev/null 2>/dev/null').s(self.args)
         self._run(cmd)
 
+    def _gen_control_script(self):
+        content = file('conf/control.sh').read()
+        content = TT(content, self.args)
+
+        control_filename = T('${localdir}/${name}_control').s(self.args)
+
+        fout = open(control_filename, 'w+')
+        fout.write(content)
+        fout.close()
+        os.chmod(control_filename, 0755)
+
     def start(self):
+        if self._alive():
+            logging.warn('%s already running' %(self) )
+            return
+
+        t1 = time.time()
         self._run(self._remote_start_cmd())
-        lets_sleep()
-        if not self._alive():
-            logging.warn('start failed')
+        while not self._alive():
+            lets_sleep()
+        t2 = time.time()
+        logging.info('%s start ok in %.2f seconds' %(self, t2-t1) )
 
     def stop(self):
-        if self._run(self._remote_stop_cmd()):
-            logging.warn('stop failed %s' % self)
+        if not self._alive():
+            logging.warn('%s already stop' %(self) )
             return
-        lets_sleep()
-        if self._alive():
-            logging.warn('stop failed')
 
-    def kill(self):
-        self._run(self._remote_kill_cmd())
-        lets_sleep()
-        if self._alive():
-            logging.warn('kill failed')
+        self._run(self._remote_stop_cmd())
+        t1 = time.time()
+        while self._alive():
+            lets_sleep()
+        t2 = time.time()
+        logging.info('%s stop ok in %.2f seconds' %(self, t2-t1) )
 
     def printcmd(self):
         print common.to_blue(self), self._remote_start_cmd()
         print common.to_blue(self), self._remote_stop_cmd()
-        print common.to_blue(self), self._remote_kill_cmd()
 
     def status(self):
         logging.warn("status: not implement")
 
     def log(self):
-        cmd = T('tail $logfile').s(self.args)
+        cmd = TT('tail $logfile', self.args)
         print self._run(self._remote_cmd(cmd))
 
     def _alive(self):
         logging.warn("_alive: not implement")
 
     def _init_dir(self):
-        raw_cmd = T('mkdir -p $path/bin && mkdir -p $path/log && mkdir -p $path/data && mkdir -p $path/conf').s(self.args)
+        raw_cmd = TT('mkdir -p $path/bin && mkdir -p $path/log && mkdir -p $path/data && mkdir -p $path/conf', self.args)
         self._run(self._remote_cmd(raw_cmd, chdir=False))
 
     def _remote_start_cmd(self):
-        return self._remote_cmd(self.args['startcmd'])
-    def _remote_stop_cmd(self):
-        cmd = T('cat $pidfile | xargs kill').s(self.args)
+        cmd = TT("${name}_control start", self.args)
         return self._remote_cmd(cmd)
-    def _remote_kill_cmd(self):
-        cmd = T("pkill -f '$runcmd'").s(self.args)
+
+    def _remote_stop_cmd(self):
+        cmd = TT("${name}_control stop", self.args)
         return self._remote_cmd(cmd)
 
     def _remote_cmd(self, raw_cmd, chdir=True):
@@ -117,9 +147,9 @@ class Base:
         args = copy.deepcopy(self.args)
         args['cmd'] = raw_cmd
         if chdir:
-            return T('ssh -n -f $user@$host "cd $path && $cmd"').s(args)
+            return TT('ssh -n -f $user@$host "cd $path && $cmd"', args)
         else:
-            return T('ssh -n -f $user@$host "$cmd"').s(args)
+            return TT('ssh -n -f $user@$host "$cmd"', args)
 
     def _run(self, raw_cmd):
         ret = common.system(raw_cmd, logging.debug)
@@ -129,12 +159,8 @@ class Base:
 
 class RedisServer(Base):
     def __init__(self, user, host_port, path):
-        self.args = {
-                'user':  user,
-                'host':  host_port.split(':')[0],
-                'port':  int(host_port.split(':')[1]),
-                'path':  path,
-                }
+        Base.__init__(self, 'redis', user, host_port, path)
+
         self.args.update(conf.BINARYS)
         self.args['startcmd'] = T('bin/redis-server conf/redis-$port.conf').s(self.args)
         self.args['runcmd'] = T('redis-server \*:$port').s(self.args)
@@ -143,9 +169,6 @@ class RedisServer(Base):
         self.args['pidfile'] = T('$path/log/redis.pid').s(self.args)
         self.args['logfile'] = T('$path/log/redis.log').s(self.args)
         self.args['dir']     = T('$path/data').s(self.args)
-
-    def __str__(self):
-        return T('[RedisServer:$host:$port]').s(self.args)
 
     def _info(self):
         cmd = T('$REDIS_CLI -h $host -p $port INFO').s(self.args)
@@ -174,13 +197,13 @@ class RedisServer(Base):
         cmd = T('rsync -avP $local_config $user@$host:$path/conf/ 1>/dev/null 2>/dev/null').s(self.args)
         self._run(cmd)
 
-    def deploy(self):
-        self._init_dir()
+    #def deploy(self):
+        #self._init_dir()
 
-        cmd = T('rsync -avP $REDIS_SERVER_BINS $user@$host:$path/bin/ 1>/dev/null 2>/dev/null').s(self.args)
-        self._run(cmd)
+        #cmd = T('rsync -avP $REDIS_SERVER_BINS $user@$host:$path/bin/ 1>/dev/null 2>/dev/null').s(self.args)
+        #self._run(cmd)
 
-        self._gen_conf()
+        #self._gen_conf()
 
     def status(self):
         info = self._info()
@@ -208,14 +231,11 @@ class RedisServer(Base):
 
 
 class Sentinel(RedisServer):
+
     def __init__(self, user, host_port, path, masters):
+        Base.__init__(self, 'sentinel', user, host_port, path)
+
         self.masters = masters
-        self.args = {
-                'user':  user,
-                'host':  host_port.split(':')[0],
-                'port':  int(host_port.split(':')[1]),
-                'path':  path,
-                }
         self.args.update(conf.BINARYS)
         self.args['startcmd'] = T('bin/redis-sentinel conf/sentinel-$port.conf').s(self.args)
         self.args['runcmd'] = T('redis-sentinel \*:$port').s(self.args)
@@ -223,9 +243,6 @@ class Sentinel(RedisServer):
         self.args['conf'] = T('$path/conf/sentinel.conf').s(self.args)
         self.args['pidfile'] = T('$path/log/sentinel.pid').s(self.args)
         self.args['logfile'] = T('$path/log/sentinel.log').s(self.args)
-
-    def __str__(self):
-        return T('[Sentinel:$host:$port]').s(self.args)
 
     def _gen_conf_section(self):
         template = '''\
@@ -261,13 +278,9 @@ sentinel parallel-syncs $server_name 1
 
 class NutCracker(Base):
     def __init__(self, user, host_port, path, masters):
+        Base.__init__(self, 'nutcracker', user, host_port, path)
+
         self.masters = masters
-        self.args = {
-                'user':  user,
-                'host':  host_port.split(':')[0],
-                'port':  int(host_port.split(':')[1]),
-                'path':  path,
-                }
         self.args.update(conf.BINARYS)
 
         self.args['conf'] = T('$path/conf/nutcracker.conf').s(self.args)
@@ -277,9 +290,6 @@ class NutCracker(Base):
 
         self.args['startcmd'] = T('bin/nutcracker -d -c $conf -o $logfile -p $pidfile -s $status_port').s(self.args)
         self.args['runcmd'] = self.args['startcmd']
-
-    def __str__(self):
-        return T('[NutCracker:$host:$port]').s(self.args)
 
     def _alive(self):
         if self._info():
@@ -449,12 +459,6 @@ class Cluster():
         show log of all instance(redis/sentinel/nutcracker) in this cluster
         '''
         self._doit('log', False)
-
-    def kill(self):
-        '''
-        kill all instance(redis/sentinel/nutcracker) in this cluster
-        '''
-        self._doit('kill', False)
 
     def _rediscmd(self, cmd, sleeptime=.1):
         for s in self.all_redis:

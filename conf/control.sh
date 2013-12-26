@@ -8,13 +8,13 @@ start()
     pushd . > /dev/null
 
     cd `dirname $$0`
-    $(startcmd)
+    ${startcmd}
     popd
 }
 
 stop() 
 {
-    $(killcmd)
+    pkill -f '${runcmd}'
 }
 
 case C"$$1" in
