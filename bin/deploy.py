@@ -146,8 +146,8 @@ class Base:
         '''
         remote_cmd = self._remote_cmd(cmd)
         logging.info(remote_cmd)
-        common.system_bg(remote_cmd, logging.debug)
-        #print self._run(remote_cmd)
+        #common.system_bg(remote_cmd, logging.debug)
+        print self._run(remote_cmd)
 
     def _alive(self):
         logging.warn("_alive: not implement")
@@ -503,7 +503,7 @@ class Cluster():
         run benchmark against proxy
         '''
         for s in self.all_nutcracker:
-            cmd = T('bin/redis-benchmark --csv -h $host -p $port -r 10000000 -t set,get -n 1000000 -c 10 &').s(s.args)
+            cmd = T('bin/redis-benchmark --csv -h $host -p $port -r 10000000 -t set,get -n 1000000 -c 10 ').s(s.args)
             BenchThread(random.choice(self.all_masters), cmd).start()
 
     def mbench(self):
@@ -511,7 +511,7 @@ class Cluster():
         run benchmark against redis master
         '''
         for s in self.all_masters:
-            cmd = T('bin/redis-benchmark --csv -h $host -p $port -r 10000000 -t set,get -n 1000000 -c 10 &').s(s.args)
+            cmd = T('bin/redis-benchmark --csv -h $host -p $port -r 10000000 -t set,get -n 1000000 -c 10 ').s(s.args)
             BenchThread(s, cmd).start()
 
     def stopbench(self):
