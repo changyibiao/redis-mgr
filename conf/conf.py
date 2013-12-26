@@ -13,11 +13,11 @@
 #dir
 
 #path in the deploy machine
-binarys = {
-    'redis_server' : '/home/ning/idning-github/redis/src/redis-server',
-    'redis_cli' : '/home/ning/idning-github/redis/src/redis-cli',
-    'redis_sentinel' : '/home/ning/idning-github/redis/src/redis-sentinel',
-    'nutcracker' : '/home/ning/Desktop/t/nutcracker-0.2.4/output/bin/nutcracker',
+BINARYS = {
+    'REDIS_SERVER_BINS' : '/home/ning/idning-github/redis/src/redis-server',
+    'REDIS_CLI' : '/home/ning/idning-github/redis/src/redis-cli',
+    'REDIS_SENTINEL_BINS' : '/home/ning/idning-github/redis/src/redis-sentinel',
+    'NUTCRACKER_BINS' : '/home/ning/Desktop/t/nutcracker-0.2.4/output/bin/nutcracker',
 }
 
 cluster0 = {
