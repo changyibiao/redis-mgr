@@ -100,6 +100,7 @@ class Base:
             logging.warn('%s already running' %(self) )
             return
 
+        logging.debug('starting %s' % self)
         t1 = time.time()
         sleeptime = .1
         self._run(self._remote_start_cmd())
@@ -109,7 +110,8 @@ class Base:
             if sleeptime < 5:
                 sleeptime *= 2
             else:
-                logging.warn('still not alive')
+                sleeptime = 5
+                logging.warn('%s still not alive' % self)
 
         t2 = time.time()
         logging.info('%s start ok in %.2f seconds' %(self, t2-t1) )

@@ -24,7 +24,7 @@ MASTER_PER_MACHINE = 2
 SLAVE_PORT_INCREASE = 10000
 
 # gen the "redis" section
-port = 20000
+port = 10000
 for i in range(len(HOSTS)):
     for j in range(MASTER_PER_MACHINE):
         slave_port = port + 1000
@@ -36,7 +36,7 @@ for i in range(len(HOSTS)):
         port += 1
 
 # gen the "nutcracker" section
-port = 22000
+port = 12000
 for i in range(len(HOSTS)):
     m = HOSTS[i]
     for j in range(MASTER_PER_MACHINE):

@@ -1,10 +1,11 @@
 #coding: utf-8
-#端口: 角色1位, 集群号1位, 实例号2位, 主从端口一样
+#the port: role: x, cluster_id: x, instance:xx
+#       1        0              x           xx
 
-#redis-master   20xxx
-#redis-slave    21xxx
-#proxy          22xxx 23xxx(status-port)
-#sentinel       29xxx
+#redis-master   10xxx
+#redis-slave    11xxx
+#proxy          12xxx 13xxx(status-port)
+#sentinel       19xxx
 
 #we will generate:
 #port
