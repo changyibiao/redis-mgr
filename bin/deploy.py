@@ -14,6 +14,8 @@ import threading
 import logging
 import inspect
 import argparse
+
+from collections import defaultdict
 from argparse import RawTextHelpFormatter
 
 from string import Template as T
@@ -50,7 +52,7 @@ def TT(template, args): #todo: modify all
 
 class Base:
     '''
-    the sub class should implement: _alive, status, and init self.args
+    the sub class should implement: _alive, _pre_deploy, status, and init self.args
     '''
     def __init__(self, name, user, host_port, path):
         self.args = {
@@ -71,9 +73,11 @@ class Base:
         return TT('[$name:$host:$port]', self.args)
 
     def deploy(self):
+        logging.info('deploy %s' % self)
         self.args['localdir'] = TT('tmp/$name-$host-$port', self.args)
-        self._run(TT('mkdir -p $localdir', self.args))
+        self._run(TT('mkdir -p $localdir/bin && mkdir -p $localdir/conf && mkdir -p $localdir/log && mkdir -p $localdir/data ', self.args))
 
+        self._pre_deploy()
         self._gen_control_script()
         self._init_dir()
 
@@ -117,28 +121,28 @@ class Base:
 
     def printcmd(self):
         print common.to_blue(self), self._remote_start_cmd()
-        print common.to_blue(self), self._remote_stop_cmd()
 
     def status(self):
         logging.warn("status: not implement")
 
     def log(self):
         cmd = TT('tail $logfile', self.args)
+        logging.info('log of %s' % self)
         print self._run(self._remote_cmd(cmd))
 
     def _alive(self):
         logging.warn("_alive: not implement")
 
     def _init_dir(self):
-        raw_cmd = TT('mkdir -p $path/bin && mkdir -p $path/log && mkdir -p $path/data && mkdir -p $path/conf', self.args)
+        raw_cmd = TT('mkdir -p $path', self.args)
         self._run(self._remote_cmd(raw_cmd, chdir=False))
 
     def _remote_start_cmd(self):
-        cmd = TT("${name}_control start", self.args)
+        cmd = TT("./${name}_control start", self.args)
         return self._remote_cmd(cmd)
 
     def _remote_stop_cmd(self):
-        cmd = TT("${name}_control stop", self.args)
+        cmd = TT("./${name}_control stop", self.args)
         return self._remote_cmd(cmd)
 
     def _remote_cmd(self, raw_cmd, chdir=True):
@@ -161,8 +165,7 @@ class RedisServer(Base):
     def __init__(self, user, host_port, path):
         Base.__init__(self, 'redis', user, host_port, path)
 
-        self.args.update(conf.BINARYS)
-        self.args['startcmd'] = T('bin/redis-server conf/redis-$port.conf').s(self.args)
+        self.args['startcmd'] = T('bin/redis-server conf/redis.conf').s(self.args)
         self.args['runcmd'] = T('redis-server \*:$port').s(self.args)
 
         self.args['conf'] = T('$path/conf/redis.conf').s(self.args)
@@ -170,52 +173,41 @@ class RedisServer(Base):
         self.args['logfile'] = T('$path/log/redis.log').s(self.args)
         self.args['dir']     = T('$path/data').s(self.args)
 
-    def _info(self):
-        cmd = T('$REDIS_CLI -h $host -p $port INFO').s(self.args)
-        return self._run(cmd)
+        self.args['REDIS_CLI'] = conf.BINARYS['REDIS_CLI']
 
     def _info_dict(self):
-        info = self._info()
+        cmd = T('$REDIS_CLI -h $host -p $port INFO').s(self.args)
+        info = self._run(cmd)
+
         info = [line.split(':', 1) for line in info.split('\r\n') if not line.startswith('#')]
         info = [i for i in info if len(i)>1]
-        return dict(info)
+        return defaultdict(str, info) #this is a defaultdict, be Notice
 
     def _alive(self):
-        if self._info().find('redis_version:') > -1:
-            return True
-        return False
+        return self._info_dict()['redis_version']
 
     def _gen_conf(self):
         content = file('conf/redis.conf').read()
-        content = T(content).s(self.args)
+        return TT(content, self.args)
 
-        self.args['local_config'] = T('tmp/redis-$port.conf').s(self.args)
-        fout = open(self.args['local_config'], 'w+')
-        fout.write(content)
+    def _pre_deploy(self):
+        self.args['BINS'] = conf.BINARYS['REDIS_SERVER_BINS']
+        self._run(TT('cp $BINS $localdir/bin/', self.args))
+
+        fout = open(TT('$localdir/conf/redis.conf', self.args), 'w+')
+        fout.write(self._gen_conf())
         fout.close()
 
-        cmd = T('rsync -avP $local_config $user@$host:$path/conf/ 1>/dev/null 2>/dev/null').s(self.args)
-        self._run(cmd)
-
-    #def deploy(self):
-        #self._init_dir()
-
-        #cmd = T('rsync -avP $REDIS_SERVER_BINS $user@$host:$path/bin/ 1>/dev/null 2>/dev/null').s(self.args)
-        #self._run(cmd)
-
-        #self._gen_conf()
-
     def status(self):
-        info = self._info()
-        if info.find('redis_version:') == -1:
-            logging.error('%s is down' % self)
+        uptime = self._info_dict()['uptime_in_seconds']
+        if uptime:
+            logging.info('%s uptime %s seconds' % (self, uptime))
         else:
-            msg = [line.strip() for line in info.split('\r\n') if strstr(line, 'uptime_in_seconds')]
-            print '\n'.join(msg)
+            logging.error('%s is down' % self)
 
     def isslaveof(self, master_host, master_port):
         info = self._info_dict()
-        if 'master_host' in info and info['master_host'] == master_host and int(info['master_port']) == master_port:
+        if info['master_host'] == master_host and int(info['master_port']) == master_port:
             logging.debug('already slave of %s:%s' % (master_host, master_port))
             return True
 
@@ -227,22 +219,23 @@ class RedisServer(Base):
         args = copy.deepcopy(self.args)
         args['cmd'] = cmd
         cmd = T('$REDIS_CLI -h $host -p $port $cmd').s(args)
-        return self._run(cmd)
+        logging.info('%s %s' % (self, cmd))
+        print self._run(cmd)
 
 
 class Sentinel(RedisServer):
-
     def __init__(self, user, host_port, path, masters):
-        Base.__init__(self, 'sentinel', user, host_port, path)
+        RedisServer.__init__(self, user, host_port, path)
 
-        self.masters = masters
-        self.args.update(conf.BINARYS)
-        self.args['startcmd'] = T('bin/redis-sentinel conf/sentinel-$port.conf').s(self.args)
+        self.args['startcmd'] = T('bin/redis-sentinel conf/sentinel.conf').s(self.args)
         self.args['runcmd'] = T('redis-sentinel \*:$port').s(self.args)
 
         self.args['conf'] = T('$path/conf/sentinel.conf').s(self.args)
         self.args['pidfile'] = T('$path/log/sentinel.pid').s(self.args)
         self.args['logfile'] = T('$path/log/sentinel.log').s(self.args)
+
+        self.args['name'] = 'sentinel'
+        self.masters = masters
 
     def _gen_conf_section(self):
         template = '''\
@@ -258,30 +251,21 @@ sentinel parallel-syncs $server_name 1
     def _gen_conf(self):
         content = file('conf/sentinel.conf').read()
         content = T(content).s(self.args)
+        return content + self._gen_conf_section()
 
-        self.args['local_config'] = T('tmp/sentinel-$port.conf').s(self.args)
-        fout = open(self.args['local_config'], 'w+')
-        fout.write(content)
-        fout.write(self._gen_conf_section())
+    def _pre_deploy(self):
+        self.args['BINS'] = conf.BINARYS['REDIS_SENTINEL_BINS']
+        self._run(TT('cp $BINS $localdir/bin/', self.args))
+
+        fout = open(TT('$localdir/conf/sentinel.conf', self.args), 'w+')
+        fout.write(self._gen_conf())
         fout.close()
-
-        cmd = T('rsync -avP $local_config $user@$host:$path/conf/ 1>/dev/null 2>/dev/null').s(self.args)
-        self._run(cmd)
-
-    def deploy(self):
-        self._init_dir()
-
-        cmd = T('rsync -avP $REDIS_SENTINEL_BINS $user@$host:$path/bin/ 1>/dev/null 2>/dev/null').s(self.args)
-        self._run(cmd)
-
-        self._gen_conf()
 
 class NutCracker(Base):
     def __init__(self, user, host_port, path, masters):
         Base.__init__(self, 'nutcracker', user, host_port, path)
 
         self.masters = masters
-        self.args.update(conf.BINARYS)
 
         self.args['conf'] = T('$path/conf/nutcracker.conf').s(self.args)
         self.args['pidfile'] = T('$path/log/nutcracker.pid').s(self.args)
@@ -292,9 +276,7 @@ class NutCracker(Base):
         self.args['runcmd'] = self.args['startcmd']
 
     def _alive(self):
-        if self._info():
-            return True
-        return False
+        return self._info_dict()
 
     def _gen_conf_section(self):
         template = '    - $host:$port:1 $server_name'
@@ -319,37 +301,30 @@ $cluster_name:
   servers:
 '''
         content = T(content).s(self.args)
+        return content + self._gen_conf_section()
 
-        self.args['local_config'] = T('tmp/nutcracker-$port.conf').s(self.args)
-        fout = open(self.args['local_config'], 'w+')
-        fout.write(content)
-        fout.write(self._gen_conf_section())
+    def _pre_deploy(self):
+        self.args['BINS'] = conf.BINARYS['NUTCRACKER_BINS']
+        self._run(TT('cp $BINS $localdir/bin/', self.args))
+
+        fout = open(TT('$localdir/conf/nutcracker.conf', self.args), 'w+')
+        fout.write(self._gen_conf())
         fout.close()
 
-        cmd = T('rsync -avP $local_config $user@$host:$path/conf/ 1>/dev/null 2>/dev/null').s(self.args)
-        self._run(cmd)
-
-    def deploy(self):
-        self._init_dir()
-
-        cmd = T('rsync -avP $NUTCRACKER_BINS $user@$host:$path/bin/ 1>/dev/null 2>/dev/null').s(self.args)
-        self._run(cmd)
-
-        self._gen_conf()
-
-    def _info(self):
+    def _info_dict(self):
         cmd = T('nc $host $status_port').s(self.args)
         ret = self._run(cmd)
         try:
             return common.json_decode(ret)
         except Exception, e:
-            logging.warning('json decode error on : %s, [Exception: %s]' % (ret, e))
+            logging.debug('--- json decode error on : %s, [Exception: %s]' % (ret, e))
             return None
 
     def status(self):
-        ret = self._info()
+        ret = self._info_dict()
         if ret:
-            print 'uptime: ', ret['uptime']
+            uptime = ret['uptime']
+            logging.info('%s uptime %s seconds' % (self, uptime))
         else:
             logging.error('%s is down' % self)
 
@@ -376,32 +351,7 @@ class Cluster():
         for m in self.all_nutcracker:
             m.args['cluster_name'] = args['cluster_name']
 
-    def _doit(self, op, skip_if_alive):
-        logging.notice('%s redis' % (op, ))
-        for s in self.all_redis:
-            logging.info('%s %s' % (op, s))
-            if skip_if_alive and s._alive():
-                logging.warn('%s is alive' % s)
-            else:
-                eval('s.%s()' % op)
-
-        logging.notice('%s sentinel' % (op, ))
-        for s in self.all_sentinel:
-            logging.info('%s %s' % (op, s))
-            if skip_if_alive and s._alive():
-                logging.warn('%s is alive' % s)
-            else:
-                eval('s.%s()' % op)
-
-        logging.notice('%s nutcracker' % (op, ))
-        for s in self.all_nutcracker:
-            logging.info('%s %s' % (op, s))
-            if skip_if_alive and s._alive():
-                logging.warn('%s is alive' % s)
-            else:
-                eval('s.%s()' % op)
-
-    def _doit(self, op, skip_if_alive):
+    def _doit(self, op):
         logging.notice('%s redis' % (op, ))
         for s in self.all_redis:
             eval('s.%s()' % op)
@@ -418,13 +368,13 @@ class Cluster():
         '''
         deploy the binarys and config file (redis/sentinel/nutcracker) in this cluster
         '''
-        self._doit('deploy', True)
+        self._doit('deploy')
 
     def start(self):
         '''
         start all instance(redis/sentinel/nutcracker) in this cluster
         '''
-        self._doit('start', True)
+        self._doit('start')
 
         logging.notice('setup master->slave')
         rs = self.all_redis
@@ -440,49 +390,30 @@ class Cluster():
         '''
         stop all instance(redis/sentinel/nutcracker) in this cluster
         '''
-        self._doit('stop', False)
+        self._doit('stop')
 
     def printcmd(self):
         '''
         print the start/stop cmd of instance
         '''
-        self._doit('printcmd', False)
+        self._doit('printcmd')
 
     def status(self):
         '''
         get status of all instance(redis/sentinel/nutcracker) in this cluster
         '''
-        self._doit('status', False)
+        self._doit('status')
 
     def log(self):
         '''
         show log of all instance(redis/sentinel/nutcracker) in this cluster
         '''
-        self._doit('log', False)
+        self._doit('log')
 
     def _rediscmd(self, cmd, sleeptime=.1):
         for s in self.all_redis:
-            logging.info('%s: %s' % (s, cmd))
             time.sleep(sleeptime)
-            print s, s.rediscmd(cmd)
-
-    def mastercmd(self, cmd):
-        '''
-        run redis command against all redis Master instance, like 'INFO, GET xxxx'
-        '''
-        for s in self.all_masters:
-            logging.info('%s: %s' % (s, cmd))
-            print s, s.rediscmd(cmd)
-
-    #def redis_sshcmd(self, cmd):
-        #'''
-        #ssh to target machine and run cmd
-        #'''
-        #for s in self.all_redis:
-            #print s, s.rediscmd(cmd)
-
-    def reconfig_proxy(self):
-        pass
+            s.rediscmd(cmd)
 
     def rediscmd(self, cmd):
         '''
@@ -490,28 +421,36 @@ class Cluster():
         '''
         self._rediscmd(cmd)
 
+    def mastercmd(self, cmd):
+        '''
+        run redis command against all redis Master instance, like 'INFO, GET xxxx'
+        '''
+        for s in self.all_masters:
+            s.rediscmd(cmd)
+
     def rdb(self):
         '''
         do rdb in all redis instance
         '''
-        self._rediscmd('BGSAVE', 1)
+        self._rediscmd('BGSAVE', conf.RDB_SLEEP_TIME)
 
     def aof_rewrite(self):
         '''
         do aof_rewrite in all redis instance
         '''
-        self._rediscmd('BGREWRITEAOF', 1)
+        self._rediscmd('BGREWRITEAOF', conf.RDB_SLEEP_TIME)
 
-    def _monitor_redis(self, what):
+
+    def _monitor_redis(self, what, format_func = lambda x:x):
         header = common.to_blue(' '.join(['%5s' % s.args['port'] for s in self.all_masters]))
         for i in xrange(1000*1000):
             if i%10 == 0:
                 print header
             def get_v(s):
                 info = s._info_dict()
-                if what in info:
-                    return info[what]
-                return '-'
+                if what not in info:
+                    return '-'
+                return format_func(info[what])
             print ' '.join([ '%5s' % get_v(s) for s in self.all_masters])
             time.sleep(1)
 
@@ -519,7 +458,9 @@ class Cluster():
         '''
         monitor used_memory_human:1.53M
         '''
-        self._monitor_redis('used_memory_human')
+        def format(s):
+            return re.sub('\.\d+', '', s) # 221.53M=>221M
+        self._monitor_redis('used_memory_human', format)
 
     def mq(self):
         '''
@@ -527,17 +468,15 @@ class Cluster():
         '''
         self._monitor_redis('instantaneous_ops_per_sec')
 
-    def monitor(self):
-        '''
-        monitor status of the cluster
-        '''
-        pass
-
     def randomdown(self):
         '''
         random kill master every second (for test)
         '''
         pass
+
+    def reconfig_proxy(self):
+        pass
+
 
     def bench(self):
         '''
@@ -554,6 +493,20 @@ class Cluster():
         for s in self.all_masters:
             cmd = T('redis-benchmark -h $host -p $port -r 10000000 -t set,get -n 1000000 -c 10 ').s(s.args)
             BenchThread(cmd).start()
+
+    def sshcmd(self, cmd):
+        '''
+        ssh to target machine and run cmd
+        '''
+        hosts = [s.args['host'] for s in self.all_redis + self.all_sentinel + self.all_nutcracker]
+        hosts = set(hosts)
+
+        args = copy.deepcopy(self.args)
+        args['cmd'] = cmd
+        for h in hosts:
+            args['host'] = h
+            cmd = TT('ssh -n -f $user@$host "$cmd"', args)
+            print common.system(cmd)
 
 def discover_op():
     methods = inspect.getmembers(Cluster, predicate=inspect.ismethod)

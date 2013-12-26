@@ -14,11 +14,12 @@
 
 #path in the deploy machine
 BINARYS = {
-    'REDIS_SERVER_BINS' : '/home/ning/idning-github/redis/src/redis-server',
+    'REDIS_SERVER_BINS' : '/home/ning/idning-github/redis/src/redis-*',
     'REDIS_CLI' : '/home/ning/idning-github/redis/src/redis-cli',
     'REDIS_SENTINEL_BINS' : '/home/ning/idning-github/redis/src/redis-sentinel',
     'NUTCRACKER_BINS' : '/home/ning/Desktop/t/nutcracker-0.2.4/output/bin/nutcracker',
 }
+RDB_SLEEP_TIME = 1
 
 cluster0 = {
     'cluster_name': 'cluster0',
