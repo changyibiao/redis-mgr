@@ -12,6 +12,7 @@ import copy
 import thread
 import threading
 import logging
+import random
 import inspect
 import argparse
 
@@ -143,8 +144,9 @@ class Base:
         '''
         run a benchmark cmd on this remote machine
         '''
-        #logging.info('bench of %s' % self)
-        print self._run(self._remote_cmd(cmd))
+        remote_cmd = self._remote_cmd(cmd)
+        logging.info(remote_cmd)
+        print self._run(remote_cmd)
 
     def _alive(self):
         logging.warn("_alive: not implement")
@@ -501,7 +503,7 @@ class Cluster():
         '''
         for s in self.all_nutcracker:
             cmd = T('bin/redis-benchmark -h $host -p $port -r 10000000 -t set,get -n 1000000 -c 10 ').s(s.args)
-            BenchThread(cmd).start()
+            BenchThread(random.choice(self.all_masters), cmd).start()
 
     def mbench(self):
         '''
