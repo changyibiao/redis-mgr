@@ -450,7 +450,8 @@ class Cluster():
 
     def rdb(self):
         '''
-        do rdb in all redis instance
+        do rdb in all redis instance, 
+        TODO: check rdb_last_save_time, latest_fork_usec
         '''
         self._rediscmd('BGSAVE', conf.RDB_SLEEP_TIME)
 
@@ -487,6 +488,14 @@ class Cluster():
         monitor instantaneous_ops_per_sec
         '''
         self._monitor_redis('instantaneous_ops_per_sec')
+
+    def monitor(self):
+        '''
+        a long time running monitor task, write WARN log on bad things happend
+        1. instance down
+        2. master_link_status:down
+        3. slow log
+        '''
 
     def randomdown(self):
         '''

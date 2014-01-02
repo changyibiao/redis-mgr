@@ -1,7 +1,7 @@
 deploy.py
 =========
 
-this script will deploy a redis cluster with:
+this script will deploy a redis cluster in ``10 minutes`` with:
 
 - redis
 - redis-sentinel
