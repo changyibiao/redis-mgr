@@ -15,6 +15,7 @@ import logging
 import random
 import inspect
 import argparse
+import redis
 
 from collections import defaultdict
 from argparse import RawTextHelpFormatter
@@ -241,6 +242,13 @@ class RedisServer(Base):
         logging.info('%s %s' % (self, cmd))
         print self._run(cmd)
 
+    def get_masters(self):
+        try:
+            conn = redis.Redis(self.args['host'], self.args['port'])
+            return conn.sentinel_masters()
+        except Exception as e:
+           return None
+        return None
 
 class Sentinel(RedisServer):
     def __init__(self, user, host_port, path, masters):
@@ -255,6 +263,7 @@ class Sentinel(RedisServer):
 
         self.args['name'] = 'sentinel'
         self.masters = masters
+        self._sub = None
 
     def _gen_conf_section(self):
         template = '''\
@@ -279,6 +288,37 @@ sentinel parallel-syncs $server_name 1
         fout = open(TT('$localdir/conf/sentinel.conf', self.args), 'w+')
         fout.write(self._gen_conf())
         fout.close()
+
+    def _ping(self):
+        cmd = T('$redis_cli -h $host -p $port PING').s(self.args)
+        return self._run(cmd)
+
+    def alive(self):
+        if self._ping().find('PONG') > -1:
+            return True
+        return False
+
+    def get_failover_event(self):
+        event = None
+        try:
+            if not self._sub:
+                self._sub = redis.Redis(self.args['host'], self.args['port']).pubsub()
+                self._sub.subscribe('+switch-master')
+                if( next(self._sub.listen()) != \
+                {
+                    'type':'subscribe',
+                    'pattern':None,
+                    'channel':'+switch-master',
+                    'data':1
+                }):
+                    self._sub = None
+            if self._sub:
+                logging.info('waiting for failover event')
+                event = next(self._sub.listen())
+        except Exception as e:
+            logging.warn('failed to subscribe sentinel: %s:%s, %s' % (self.args['host'], self.args['port'], str(e)))
+            event = None
+        return event
 
 class NutCracker(Base):
     def __init__(self, user, host_port, path, masters):
@@ -347,6 +387,25 @@ $cluster_name:
         else:
             logging.error('%s is down' % self)
 
+    def sync_conf_to_local(self):
+        if not self._alive():
+            return None
+        self.args['local_config'] = T('tmp/nutcracker-$port.conf').s(self.args)
+        cmd = T('rsync -avP $user@$host:$path/conf/nutcracker-$port.conf $local_config 1>/dev/null 2>/dev/null').s(self.args)
+        self._run(cmd)
+        return self.args['local_config']
+
+    def reconfig(self, masters):
+        self.masters = masters
+        alive = self._alive()
+
+        if alive:
+            self.stop()
+        self._gen_conf()
+        if alive:
+            self.start()
+
+        logging.info('proxy %s:%s is updated' % (self.args['host'], self.args['port']))
 
 class BenchThread(threading.Thread):
     def __init__ (self, redis, cmd):
@@ -370,6 +429,8 @@ class Cluster():
         self.all_nutcracker = [NutCracker(self.args['user'], hp, path, masters) for hp, path in self.args['nutcracker'] ]
         for m in self.all_nutcracker:
             m.args['cluster_name'] = args['cluster_name']
+        self._x = 0
+        self._current = None
 
     def _doit(self, op):
         logging.notice('%s redis' % (op, ))
@@ -383,6 +444,78 @@ class Cluster():
         logging.notice('%s nutcracker' % (op, ))
         for s in self.all_nutcracker:
             eval('s.%s()' % op)
+
+    def _get_available_sentinel(self):
+        c = 0
+        while c < len(self.all_sentinel):
+            self._x = (self._x + 1) % len(self.all_sentinel)
+            s = self.all_sentinel[self._x]
+            c = c + 1
+            if s.alive():
+                return s
+        logging.warn('No sentinel instance are available')
+        return None
+
+    def _get_proxy_masters(self):
+        ret = None
+        for m in self.all_nutcracker:
+            ret = m.sync_conf_to_local()
+            if ret:
+                break
+        if ret:
+            content = file(ret).read()
+            lines = [ s.split()[1] for s in content.split('\n') if s.startswith('    -') ]
+            masters = [ ':'.join(m.split(':')[0:2]) for m in lines ]
+            return set(masters)
+        return set()
+
+    def _get_sentinel_masters(self):
+        ret = None
+        for m in self.all_sentinel:
+            ret = m.get_masters()
+            if ret:
+                break
+        if ret:
+            masters = [ ':'.join([ v['ip'], str(v['port']) ]) for (k,v) in ret.items() ]
+            return set(masters)
+        return set()
+
+    def _reconfig_proxy(self):
+        old = self._get_proxy_masters()
+        new = self._get_sentinel_masters()
+        logging.info("old masters: %s" % str(old))
+        logging.info("new masters: %s" % str(new))
+
+        if not new - old:
+            logging.info('masters list of proxy are already newest')
+            return
+
+        self.all_masters = masters = [ RedisServer(self.args['user'], hp, "") for hp in new ]
+        for m in masters:
+            m.args['cluster_name'] = self.args['cluster_name']
+            m.args['server_name'] = T('$cluster_name-$port').s(m.args)
+
+        for m in self.all_nutcracker:
+            m.reconfig(masters)
+        logging.info('update all proxy config: done')
+
+    def _is_failover_triggered(self):
+        sentinel = self._current
+
+        if not sentinel:
+            self._current = sentinel = self._get_available_sentinel()
+
+        if not sentinel:
+            logging.info('No sentinel instance are available')
+            time.sleep(1)
+            return False
+
+        ret = sentinel.get_failover_event()
+        if(ret['channel'] == '+switch-master'):
+            return True
+
+        self._current = None
+        return False
 
     def deploy(self):
         '''
@@ -542,6 +675,20 @@ class Cluster():
             args['host'] = h
             cmd = TT('ssh -n -f $user@$host "$cmd"', args)
             print common.system(cmd)
+
+    def reconfigproxy(self):
+        '''
+        sync the masters list from sentinel to proxy
+        '''
+        self._reconfig_proxy()
+
+    def failover(self):
+        '''
+        catch failover event and update the proxy configuration
+        '''
+        while True:
+            if self._is_failover_triggered():
+                self._reconfig_proxy()
 
 def discover_op():
     methods = inspect.getmembers(Cluster, predicate=inspect.ismethod)
