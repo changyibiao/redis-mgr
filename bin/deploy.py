@@ -19,7 +19,6 @@ import redis
 
 from collections import defaultdict
 from argparse import RawTextHelpFormatter
-
 from string import Template
 
 from pcl import common
@@ -30,7 +29,9 @@ LOGPATH = os.path.join(WORKDIR, 'log/deploy.log')
 
 sys.path.append(os.path.join(WORKDIR, 'lib/'))
 sys.path.append(os.path.join(WORKDIR, 'conf/'))
+ret = common.system('mkdir -p data tmp', None)
 
+from monitor import Monitor
 
 # import config in conf/xxx
 if 'REDIS_DEPLOY_CONFIG' not in os.environ:
@@ -398,7 +399,7 @@ class BenchThread(threading.Thread):
         self.redis._bench(self.cmd)
 
 
-class Cluster():
+class Cluster(object, Monitor):
     def __init__(self, args):
         self.args = args
         self.all_redis = [ RedisServer(self.args['user'], hp, path) for hp, path in self.args['redis'] ]
@@ -530,7 +531,6 @@ class Cluster():
         '''
         self._rediscmd('BGREWRITEAOF', conf.RDB_SLEEP_TIME)
 
-
     def _monitor_redis(self, what, format_func = lambda x:x):
         header = common.to_blue(' '.join(['%5s' % s.args['port'] for s in self.all_masters]))
         for i in xrange(1000*1000):
@@ -557,14 +557,6 @@ class Cluster():
         monitor instantaneous_ops_per_sec
         '''
         self._monitor_redis('instantaneous_ops_per_sec')
-
-    def monitor(self):
-        '''
-        a long time running monitor task, write WARN log on bad things happend
-        1. instance down
-        2. master_link_status:down
-        3. slow log
-        '''
 
     def randomkill(self):
         '''
@@ -649,6 +641,13 @@ class Cluster():
         pass
 
     def schedular(self):
+        '''
+        start following threads:
+            - failover 
+            - graph web server
+            - cron of monitor
+            - cron of rdb 
+        '''
         pass
 
 def discover_op():
@@ -677,7 +676,6 @@ def discover_cluster():
 def main():
     sys.argv.insert(1, '-v') # force -v
     parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter)
-
     parser.add_argument('target', metavar='clustername', choices=discover_cluster(), help=' / '.join(discover_cluster()))
     parser.add_argument('op', metavar='op', choices=discover_op(),
         help=gen_op_help())

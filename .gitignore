@@ -6,3 +6,4 @@ t
 conf/conf_inner.py
 script/*
 tmp/*
+data/*
