@@ -20,8 +20,7 @@ import redis
 from collections import defaultdict
 from argparse import RawTextHelpFormatter
 
-from string import Template as T
-T.s = T.substitute
+from string import Template
 
 from pcl import common
 
@@ -50,7 +49,7 @@ def lets_sleep(SLEEP_TIME = 0.1):
     time.sleep(SLEEP_TIME)
 
 def TT(template, args): #todo: modify all
-    return T(template).substitute(args)
+    return Template(template).substitute(args)
 
 class Base:
     '''
@@ -83,14 +82,14 @@ class Base:
         self._gen_control_script()
         self._init_dir()
 
-        cmd = T('rsync -ravP $localdir/ $user@$host:$path 1>/dev/null 2>/dev/null').s(self.args)
+        cmd = TT('rsync -ravP $localdir/ $user@$host:$path 1>/dev/null 2>/dev/null', self.args)
         self._run(cmd)
 
     def _gen_control_script(self):
         content = file('conf/control.sh').read()
         content = TT(content, self.args)
 
-        control_filename = T('${localdir}/${name}_control').s(self.args)
+        control_filename = TT('${localdir}/${name}_control', self.args)
 
         fout = open(control_filename, 'w+')
         fout.write(content)
@@ -185,18 +184,18 @@ class RedisServer(Base):
     def __init__(self, user, host_port, path):
         Base.__init__(self, 'redis', user, host_port, path)
 
-        self.args['startcmd'] = T('bin/redis-server conf/redis.conf').s(self.args)
-        self.args['runcmd'] = T('redis-server \*:$port').s(self.args)
+        self.args['startcmd'] = TT('bin/redis-server conf/redis.conf', self.args)
+        self.args['runcmd']   = TT('redis-server \*:$port', self.args)
 
-        self.args['conf'] = T('$path/conf/redis.conf').s(self.args)
-        self.args['pidfile'] = T('$path/log/redis.pid').s(self.args)
-        self.args['logfile'] = T('$path/log/redis.log').s(self.args)
-        self.args['dir']     = T('$path/data').s(self.args)
+        self.args['conf']     = TT('$path/conf/redis.conf', self.args)
+        self.args['pidfile']  = TT('$path/log/redis.pid', self.args)
+        self.args['logfile']  = TT('$path/log/redis.log', self.args)
+        self.args['dir']      = TT('$path/data', self.args)
 
         self.args['REDIS_CLI'] = conf.BINARYS['REDIS_CLI']
 
     def _info_dict(self):
-        cmd = T('$REDIS_CLI -h $host -p $port INFO').s(self.args)
+        cmd = TT('$REDIS_CLI -h $host -p $port INFO', self.args)
         info = self._run(cmd)
 
         info = [line.split(':', 1) for line in info.split('\r\n') if not line.startswith('#')]
@@ -204,7 +203,7 @@ class RedisServer(Base):
         return defaultdict(str, info) #this is a defaultdict, be Notice
 
     def _ping(self):
-        cmd = T('$REDIS_CLI -h $host -p $port PING').s(self.args)
+        cmd = TT('$REDIS_CLI -h $host -p $port PING', self.args)
         return self._run(cmd)
 
     def _alive(self):
@@ -242,7 +241,7 @@ class RedisServer(Base):
     def rediscmd(self, cmd):
         args = copy.deepcopy(self.args)
         args['cmd'] = cmd
-        cmd = T('$REDIS_CLI -h $host -p $port $cmd').s(args)
+        cmd = TT('$REDIS_CLI -h $host -p $port $cmd', args)
         logging.info('%s %s' % (self, cmd))
         print self._run(cmd)
 
@@ -251,14 +250,14 @@ class Sentinel(RedisServer):
     def __init__(self, user, host_port, path, masters):
         RedisServer.__init__(self, user, host_port, path)
 
-        self.args['startcmd'] = T('bin/redis-sentinel conf/sentinel.conf').s(self.args)
-        self.args['runcmd'] = T('redis-sentinel \*:$port').s(self.args)
+        self.args['startcmd'] = TT('bin/redis-sentinel conf/sentinel.conf', self.args)
+        self.args['runcmd']   = TT('redis-sentinel \*:$port', self.args)
 
-        self.args['conf'] = T('$path/conf/sentinel.conf').s(self.args)
-        self.args['pidfile'] = T('$path/log/sentinel.pid').s(self.args)
-        self.args['logfile'] = T('$path/log/sentinel.log').s(self.args)
+        self.args['conf']     = TT('$path/conf/sentinel.conf', self.args)
+        self.args['pidfile']  = TT('$path/log/sentinel.pid', self.args)
+        self.args['logfile']  = TT('$path/log/sentinel.log', self.args)
 
-        self.args['name'] = 'sentinel'
+        self.args['name']     = 'sentinel'
         self.masters = masters
 
     def _gen_conf_section(self):
@@ -269,12 +268,12 @@ sentinel failover-timeout $server_name 180000
 #sentinel can-failover $server_name yes TODO: the new version has no this cfg
 sentinel parallel-syncs $server_name 1
         '''
-        cfg = '\n'.join([T(template).s(master.args) for master in self.masters])
+        cfg = '\n'.join([TT(template, master.args) for master in self.masters])
         return cfg
 
     def _gen_conf(self):
         content = file('conf/sentinel.conf').read()
-        content = T(content).s(self.args)
+        content = TT(content, self.args)
         return content + self._gen_conf_section()
 
     def _pre_deploy(self):
@@ -309,20 +308,20 @@ class NutCracker(Base):
 
         self.masters = masters
 
-        self.args['conf'] = T('$path/conf/nutcracker.conf').s(self.args)
-        self.args['pidfile'] = T('$path/log/nutcracker.pid').s(self.args)
-        self.args['logfile'] = T('$path/log/nutcracker.log').s(self.args)
+        self.args['conf']        = TT('$path/conf/nutcracker.conf', self.args)
+        self.args['pidfile']     = TT('$path/log/nutcracker.pid', self.args)
+        self.args['logfile']     = TT('$path/log/nutcracker.log', self.args)
         self.args['status_port'] = self.args['port'] + 1000
 
-        self.args['startcmd'] = T('bin/nutcracker -d -c $conf -o $logfile -p $pidfile -s $status_port').s(self.args)
-        self.args['runcmd'] = self.args['startcmd']
+        self.args['startcmd']    = TT('bin/nutcracker -d -c $conf -o $logfile -p $pidfile -s $status_port', self.args)
+        self.args['runcmd']      = self.args['startcmd']
 
     def _alive(self):
         return self._info_dict()
 
     def _gen_conf_section(self):
         template = '    - $host:$port:1 $server_name'
-        cfg = '\n'.join([T(template).s(master.args) for master in self.masters])
+        cfg = '\n'.join([TT(template, master.args) for master in self.masters])
         return cfg
 
     def _gen_conf(self):
@@ -342,7 +341,7 @@ $cluster_name:
   server_failure_limit: 2
   servers:
 '''
-        content = T(content).s(self.args)
+        content = TT(content, self.args)
         return content + self._gen_conf_section()
 
     def _pre_deploy(self):
@@ -354,7 +353,7 @@ $cluster_name:
         fout.close()
 
     def _info_dict(self):
-        cmd = T('nc $host $status_port').s(self.args)
+        cmd = TT('nc $host $status_port', self.args)
         ret = self._run(cmd)
         try:
             return common.json_decode(ret)
@@ -387,8 +386,8 @@ $cluster_name:
         self.stop()
         self.deploy()
         self.start()
-
         logging.info('proxy %s:%s is updated' % (self.args['host'], self.args['port']))
+
 
 class BenchThread(threading.Thread):
     def __init__ (self, redis, cmd):
@@ -406,7 +405,7 @@ class Cluster():
         self.all_masters = masters = self.all_redis[::2]
         for m in masters:
             m.args['cluster_name'] = args['cluster_name']
-            m.args['server_name'] = T('$cluster_name-$port').s(m.args)
+            m.args['server_name'] = TT('$cluster_name-$port', m.args)
 
         self.all_sentinel = [Sentinel(self.args['user'], hp, path, masters) for hp, path in self.args['sentinel'] ]
         self.all_nutcracker = [NutCracker(self.args['user'], hp, path, masters) for hp, path in self.args['nutcracker'] ]
@@ -583,7 +582,7 @@ class Cluster():
         run benchmark against proxy
         '''
         for s in self.all_nutcracker:
-            cmd = T('bin/redis-benchmark --csv -h $host -p $port -r 100000 -t set,get -n 100000 -c 100 ').s(s.args)
+            cmd = TT('bin/redis-benchmark --csv -h $host -p $port -r 100000 -t set,get -n 100000 -c 100 ', s.args)
             BenchThread(random.choice(self.all_masters), cmd).start()
 
     def mbench(self):
@@ -591,7 +590,7 @@ class Cluster():
         run benchmark against redis master
         '''
         for s in self.all_masters:
-            cmd = T('bin/redis-benchmark --csv -h $host -p $port -r 100000 -t set,get -n 100000 -c 100 ').s(s.args)
+            cmd = TT('bin/redis-benchmark --csv -h $host -p $port -r 100000 -t set,get -n 100000 -c 100 ', s.args)
             BenchThread(s, cmd).start()
 
     def stopbench(self):
