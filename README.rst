@@ -17,20 +17,22 @@ config
     cluster0 = {
         'cluster_name': 'cluster0',
         'user': 'ning',
-        'redis': [
-            # master host:port, install path         # slave
-            ('127.0.0.5:20000', '/tmp/redis-20000'), ('127.0.0.5:30000', '/tmp/redis-30000'), 
-            ('127.0.0.5:20001', '/tmp/redis-20001'), ('127.0.0.5:30001', '/tmp/redis-30001'),
-        ],
         'sentinel':[
-            ('127.0.0.5:21001', '/tmp/sentinel-21001'),
-            ('127.0.0.5:21002', '/tmp/sentinel-21002'),
-            ('127.0.0.5:21003', '/tmp/sentinel-21003'),
+            ('127.0.0.5:29001', '/tmp/r/sentinel-29001'),
+            ('127.0.0.5:29002', '/tmp/r/sentinel-29002'),
+            ('127.0.0.5:29003', '/tmp/r/sentinel-29003'),
+        ],
+        'redis': [
+            # master(host:port, install path)       ,  slave(host:port, install path)
+            ('127.0.0.5:20000', '/tmp/r/redis-20000'), ('127.0.0.5:21000', '/tmp/r/redis-21000'),
+            ('127.0.0.5:20001', '/tmp/r/redis-20001'), ('127.0.0.5:21001', '/tmp/r/redis-21001'),
+            ('127.0.0.5:20002', '/tmp/r/redis-20002'), ('127.0.0.5:21002', '/tmp/r/redis-21002'),
+            ('127.0.0.5:20003', '/tmp/r/redis-20003'), ('127.0.0.5:21003', '/tmp/r/redis-21003'),
         ],
         'nutcracker': [
-            ('127.0.0.5:22000', '/tmp/nutcracker-22000'),
-            ('127.0.0.5:22001', '/tmp/nutcracker-22001'),
-            ('127.0.0.5:22002', '/tmp/nutcracker-22002'),
+            ('127.0.0.5:22000', '/tmp/r/nutcracker-22000'),
+            ('127.0.0.5:22001', '/tmp/r/nutcracker-22001'),
+            ('127.0.0.5:22002', '/tmp/r/nutcracker-22002'),
         ],
     }
 
@@ -63,6 +65,9 @@ and ``twemproxy`` config::
       servers:
         - 127.0.0.5:20000:1 cluster0-20000
         - 127.0.0.5:20001:1 cluster0-20001
+
+the name ``cluster0-20000`` is named by the orig master, 
+if slave use a different port, the server ``host:port``  of ``cluster0-20000`` can be ``127.0.0.5:20000`` or ``127.0.0.5:21000``
 
 usage
 -----
@@ -179,6 +184,7 @@ Dependency
 ==========
 
 - pcl: https://github.com/idning/pcl
+- redis-py: https://github.com/andymccurdy/redis-py
 
 Authors
 =======

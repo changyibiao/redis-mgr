@@ -21,10 +21,9 @@ HOSTS = [
         '127.0.1.4',
         ]
 MASTER_PER_MACHINE = 2
-SLAVE_PORT_INCREASE = 10000
 
 # gen the "redis" section
-port = 10000
+port = 20000
 for i in range(len(HOSTS)):
     for j in range(MASTER_PER_MACHINE):
         slave_port = port + 1000
@@ -36,7 +35,7 @@ for i in range(len(HOSTS)):
         port += 1
 
 # gen the "nutcracker" section
-port = 12000
+port = 22000
 for i in range(len(HOSTS)):
     m = HOSTS[i]
     for j in range(MASTER_PER_MACHINE):
