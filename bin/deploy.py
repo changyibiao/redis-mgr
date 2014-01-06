@@ -19,7 +19,6 @@ import redis
 
 from collections import defaultdict
 from argparse import RawTextHelpFormatter
-from string import Template
 
 from pcl import common
 
@@ -29,28 +28,18 @@ LOGPATH = os.path.join(WORKDIR, 'log/deploy.log')
 
 sys.path.append(os.path.join(WORKDIR, 'lib/'))
 sys.path.append(os.path.join(WORKDIR, 'conf/'))
-ret = common.system('mkdir -p data tmp', None)
 
-from monitor import Monitor
+from utils import *
+from monitor import Monitor, Benchmark
 
 # import config in conf/xxx
 if 'REDIS_DEPLOY_CONFIG' not in os.environ:
     logging.error('please export REDIS_DEPLOY_CONFIG=conf')
-    #config_name = 'conf'
     exit(1)
-
 config_name = os.environ['REDIS_DEPLOY_CONFIG']
 conf = __import__(config_name, globals(), locals(), [], 0)        #import config_module
 
-#utils
-def strstr(s1, s2):
-    return s1.find(s2) != -1
-
-def lets_sleep(SLEEP_TIME = 0.1):
-    time.sleep(SLEEP_TIME)
-
-def TT(template, args): #todo: modify all
-    return Template(template).substitute(args)
+ret = common.system('mkdir -p data tmp', None)
 
 class Base:
     '''
@@ -64,7 +53,7 @@ class Base:
             'port'      : int(host_port.split(':')[1]),
             'path'      : path,
 
-            'localdir'  : '',     #files to deploy #TODO, rsync is right or not ??
+            'localdir'  : '',     #files to deploy
 
             'startcmd'  : '',     #startcmd and runcmd will used to generate the control script
             'runcmd'    : '',
@@ -382,7 +371,7 @@ $cluster_name:
             return ('%s:%s' % (host, port), name)
         return [parse_line(line) for line in content.split('\n') if line.startswith('    -')]
 
-    def reconfig(self, masters): #TODO
+    def reconfig(self, masters):
         self.masters = masters
         self.stop()
         self.deploy()
@@ -390,16 +379,7 @@ $cluster_name:
         logging.info('proxy %s:%s is updated' % (self.args['host'], self.args['port']))
 
 
-class BenchThread(threading.Thread):
-    def __init__ (self, redis, cmd):
-        threading.Thread.__init__(self)
-        self.redis = redis
-        self.cmd = cmd
-    def run(self):
-        self.redis._bench(self.cmd)
-
-
-class Cluster(object, Monitor):
+class Cluster(object, Monitor, Benchmark):
     def __init__(self, args):
         self.args = args
         self.all_redis = [ RedisServer(self.args['user'], hp, path) for hp, path in self.args['redis'] ]
@@ -437,6 +417,7 @@ class Cluster(object, Monitor):
     def _active_masters(self):
         '''return the current master list on sentinel'''
         new_masters = self._get_available_sentinel().get_masters()
+        new_masters = sorted(new_masters, key=lambda x: x[1])
         def find_redis_path(input_host_port):
             for host_port, path in self.args['redis']:
                 if host_port ==  input_host_port:
@@ -515,7 +496,7 @@ class Cluster(object, Monitor):
         '''
         run redis command against all redis Master instance, like 'INFO, GET xxxx'
         '''
-        for s in self.all_masters:
+        for s in self._active_masters():
             s.rediscmd(cmd)
 
     def rdb(self):
@@ -531,33 +512,6 @@ class Cluster(object, Monitor):
         '''
         self._rediscmd('BGREWRITEAOF', conf.RDB_SLEEP_TIME)
 
-    def _monitor_redis(self, what, format_func = lambda x:x):
-        header = common.to_blue(' '.join(['%5s' % s.args['port'] for s in self.all_masters]))
-        for i in xrange(1000*1000):
-            if i%10 == 0:
-                print header
-            def get_v(s):
-                info = s._info_dict()
-                if what not in info:
-                    return '-'
-                return format_func(info[what])
-            print ' '.join([ '%5s' % get_v(s) for s in self.all_masters])
-            time.sleep(1)
-
-    def mm(self):
-        '''
-        monitor used_memory_human:1.53M
-        '''
-        def format(s):
-            return re.sub('\.\d+', '', s) # 221.53M=>221M
-        self._monitor_redis('used_memory_human', format)
-
-    def mq(self):
-        '''
-        monitor instantaneous_ops_per_sec
-        '''
-        self._monitor_redis('instantaneous_ops_per_sec')
-
     def randomkill(self):
         '''
         random kill master every mintue (for test failover)
@@ -566,30 +520,8 @@ class Cluster(object, Monitor):
             r = random.choice(self._active_masters())
             logging.notice('will restart %s' % r)
             r.stop()
-            time.sleep(61)
+            time.sleep(80)
             r.start()
-
-    def bench(self):
-        '''
-        run benchmark against proxy
-        '''
-        for s in self.all_nutcracker:
-            cmd = TT('bin/redis-benchmark --csv -h $host -p $port -r 100000 -t set,get -n 100000 -c 100 ', s.args)
-            BenchThread(random.choice(self.all_masters), cmd).start()
-
-    def mbench(self):
-        '''
-        run benchmark against redis master
-        '''
-        for s in self.all_masters:
-            cmd = TT('bin/redis-benchmark --csv -h $host -p $port -r 100000 -t set,get -n 100000 -c 100 ', s.args)
-            BenchThread(s, cmd).start()
-
-    def stopbench(self):
-        '''
-        you will need this for stop benchmark
-        '''
-        return self.sshcmd("pkill -f 'bin/redis-benchmark'")
 
     def sshcmd(self, cmd):
         '''
@@ -637,16 +569,6 @@ class Cluster(object, Monitor):
     def migrage(self):
         '''
         migrage a redis instance to another machine
-        '''
-        pass
-
-    def schedular(self):
-        '''
-        start following threads:
-            - failover 
-            - graph web server
-            - cron of monitor
-            - cron of rdb 
         '''
         pass
 

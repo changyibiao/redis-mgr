@@ -10,13 +10,72 @@ import re, time
 import logging
 import json
 from pcl import common
+from utils import *
 
 PWD = os.path.dirname(os.path.realpath(__file__))
 
-def my_json_encode(j):
-    return json.dumps(j, cls=common.MyEncoder)
+class BenchThread(threading.Thread):
+    def __init__ (self, redis, cmd):
+        threading.Thread.__init__(self)
+        self.redis = redis
+        self.cmd = cmd
+    def run(self):
+        self.redis._bench(self.cmd)
+
+class Benchmark():
+    def bench(self):
+        '''
+        run benchmark against proxy
+        '''
+        for s in self.all_nutcracker:
+            cmd = TT('bin/redis-benchmark --csv -h $host -p $port -r 100000 -t set,get -n 100000 -c 100 ', s.args)
+            BenchThread(random.choice(self._active_masters()), cmd).start()
+
+    def mbench(self):
+        '''
+        run benchmark against redis master
+        '''
+        for s in self._active_masters():
+            cmd = TT('bin/redis-benchmark --csv -h $host -p $port -r 100000 -t set,get -n 100000 -c 100 ', s.args)
+            BenchThread(s, cmd).start()
+
+    def stopbench(self):
+        '''
+        you will need this for stop benchmark
+        '''
+        return self.sshcmd("pkill -f 'bin/redis-benchmark'")
 
 class Monitor():
+    def _monitor_redis(self, what, format_func = lambda x:x):
+        masters = self._active_masters()
+        for i in xrange(1000*1000):
+            if i%10 == 0:
+                masters = self._active_masters()
+                header = common.to_blue(' '.join(['%5s' % s.args['port'] for s in masters]))
+                print header
+            def get_v(s):
+                info = s._info_dict()
+                if what not in info:
+                    return '-'
+                return format_func(info[what])
+            print ' '.join([ '%5s' % get_v(s) for s in masters]) + '\t' + common.format_time(None, '%X')
+            
+            time.sleep(1)
+
+    def mm(self):
+        '''
+        monitor used_memory_human:1.53M
+        '''
+        def format(s):
+            return re.sub('\.\d+', '', s) # 221.53M=>221M
+        self._monitor_redis('used_memory_human', format)
+
+    def mq(self):
+        '''
+        monitor instantaneous_ops_per_sec
+        '''
+        self._monitor_redis('instantaneous_ops_per_sec')
+
     def _monitor(self):
         '''
         - redis 
@@ -75,5 +134,21 @@ class Monitor():
         while True:
             self._monitor()
             time.sleep(60)
+
+    def scheduler(self):
+        '''
+        start following threads:
+            - failover 
+            - cron of monitor
+            - cron of rdb 
+            = graph web server
+        '''
+        
+        thread.start_new_thread(self.failover, ())
+
+        cron = crontab.Cron()
+        cron.add('* * * * *'   , self._monitor) # every minute
+        cron.add('* * * * *' , self.rdb, use_thread=True)        # every day
+        cron.run()
 
 # vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4
