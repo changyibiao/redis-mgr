@@ -14,7 +14,7 @@ class BenchThread(threading.Thread):
         self.redis._bench(self.cmd)
 
 class Benchmark():
-    def bench(self):
+    def nbench(self):
         '''
         run benchmark against nutcracker
         '''

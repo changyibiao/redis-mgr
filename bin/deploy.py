@@ -622,6 +622,16 @@ def gen_op_help():
     methods = inspect.getmembers(Cluster, predicate=inspect.ismethod)
     sets = [m for m in methods if not m[0].startswith('_')]
 
+    #sort the function list, based on the their position in the files
+    lines = file('bin/deploy.py').readlines() + file('lib/monitor.py').readlines()
+    def rank(x):
+        name, func = x
+        t = 'def ' + name 
+        for i in range(len(lines)):
+            if strstr(lines[i], t):
+                return i
+    sets = sorted(sets, key=rank)
+
     def format_func(name, func):
         args = ' '.join(inspect.getargspec(func).args[1:])
         if args:
