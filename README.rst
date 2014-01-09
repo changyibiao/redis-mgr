@@ -213,8 +213,13 @@ TODO
 
 1. schedular for many clusters
 2. SLOW LOG monitor
-3. monitor for nutcracker
-4. fail over will not work with:
-   nohup ./bin/deploy.py cluster0 scheduler  &
+3. #live monitor for nutcracker
+4. #nc to get nutcracker status will fail in background::
+
+      nohup ./bin/deploy.py cluster0 scheduler  &
+
+   we use telnetlib instead
+      
+
 
 

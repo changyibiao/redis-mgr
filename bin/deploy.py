@@ -226,7 +226,6 @@ class Sentinel(RedisServer):
 sentinel monitor $server_name $host $port 2
 sentinel down-after-milliseconds  $server_name 60000
 sentinel failover-timeout $server_name 180000
-#sentinel can-failover $server_name yes TODO: the new version has no this cfg
 sentinel parallel-syncs $server_name 1
         '''
         cfg = '\n'.join([TT(template, master.args) for master in self.masters])
@@ -277,6 +276,7 @@ class NutCracker(Base):
 
         self.args['startcmd']    = TT('bin/nutcracker -d -c $conf -o $logfile -p $pidfile -s $status_port', self.args)
         self.args['runcmd']      = self.args['startcmd']
+        self._last_info = None
 
     def _alive(self):
         return self._info_dict()
@@ -315,13 +315,78 @@ $cluster_name:
         fout.close()
 
     def _info_dict(self):
-        cmd = TT('nc $host $status_port', self.args)
-        ret = self._run(cmd)
-        #logging.debug(ret)
+        '''
+                                                        | We will add fields in the info dict
+        "uptime": 370,                                  |
+        "timestamp": 1389231960,                        | timestamp_INC
+        ....                                            |
+        "cluster0": {                                   |
+            "client_connections": 100,                  | 
+            "client_eof": 500,                          |
+            "forward_error": 0,                         | calc forward_error_INC
+            "client_err": 0,                            | calc client_err_INC
+            "fragments": 0,                             |  
+            "server_ejects": 0,                         |  
+                                                        | add global in_queue/out_queue/
+                                                        | add global requests/responses/
+                                                        | add global server_timedout/server_err
+                                                        | calc requests_INC responses_INC
+                                                        | calc server_timedout_INC server_err_INC
+            "cluster0-20001": {       #a backend        | 
+                "server_timedout": 0,                   | 
+                "server_err": 0,                        | 
+                "responses": 125406,                    | 
+                "response_bytes": 828478,               | 
+                "in_queue_bytes": 0,                    | 
+                "server_connections": 1,                | 
+                "request_bytes": 5189724,               | 
+                "out_queue": 0,                         | 
+                "server_eof": 0,                        | 
+                "requests": 125406,                     | 
+                "in_queue": 0,                          | 
+                "out_queue_bytes": 0                    | 
+            },                                          |
+        '''
+        info = self._raw_info_dict()
+        #logging.debug(info)
+        if not info:
+            return None
+
+        def calc_inc(cluster_name, info, last_info):
+            TO_CALC_INC = ('forward_error', 'client_err', 'requests', 'responses', 'server_timedout', 'server_err')
+            for item in TO_CALC_INC:
+                info[item + '_INC'] = info[item] - last_info[item]
+
+        def aggregation(cluster_name, info):
+            TO_AGGREGATION = ('in_queue', 'out_queue', 'requests', 'responses', 'server_timedout', 'server_err')
+            for item in TO_AGGREGATION:
+                info[item] = 0
+            for k, v, in info.items():
+                if type(v) == dict: # a backend
+                    for item in TO_AGGREGATION:
+                        info[item] += v[item]
+
+        if self._last_info:
+            info['timestamp_INC'] = info['timestamp'] - self._last_info['timestamp']
+
+        for k, v in info.items():
+            if type(v) == dict:
+                cluster_name = k
+                cluster_info = v
+                aggregation(cluster_name, cluster_info)
+                if self._last_info:
+                    calc_inc(cluster_name, cluster_info, self._last_info[cluster_name])
+
+        self._last_info = info
+        logging.debug(info)
+        return info
+
+    def _raw_info_dict(self):
         try:
+            ret = telnetlib.Telnet(self.args['host'], self.args['status_port']).read_all()
             return common.json_decode(ret)
         except Exception, e:
-            logging.debug('--- json decode error on : %s, [Exception: %s]' % (ret, e))
+            logging.debug('--- can not get _info_dict of nutcracker, [Exception: %s]' % (e, ))
             return None
 
     def status(self):

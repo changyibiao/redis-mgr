@@ -23,8 +23,18 @@ BINARYS = {
 
 RDB_SLEEP_TIME = 1
 
+#optional
 REDIS_MONITOR_EXTRA = {
     'used_cpu_user':              (0, 50),
+}
+
+#optional
+NUTCRACKER_MONITOR_EXTRA = {
+    'client_connections':  (0, 10),
+    "forward_error_INC":   (0, 1000),  # in every minute
+    "client_err_INC":      (0, 1000),  # in every minute
+    'in_queue':            (0, 10),
+    'out_queue':           (0, 10),
 }
 
 cluster0 = {

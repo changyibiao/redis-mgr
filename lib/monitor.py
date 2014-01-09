@@ -37,7 +37,25 @@ class Benchmark():
         return self.sshcmd("pkill -f 'bin/redis-benchmark'")
 
 class Monitor():
-    def _monitor_redis(self, what, format_func = lambda x:x):
+    def _live_nutcracker(self, what, format_func = lambda x:x):
+        
+        for i in xrange(1000*1000):
+            if i%10 == 0:
+                self.all_nutcracker
+                header = common.to_blue(' '.join(['%5s' % s.args['port'] for s in self.all_nutcracker]))
+                print header
+
+            def get_v(s):
+                info = s._info_dict()[self.args['cluster_name']]
+                if what not in info:
+                    return '-'
+                return format_func(info[what])
+
+            print ' '.join([ '%5s' % get_v(s) for s in self.all_nutcracker]) + '\t' + common.format_time(None, '%X')
+            
+            time.sleep(1)
+
+    def _live_redis(self, what, format_func = lambda x:x):
         masters = self._active_masters()
         for i in xrange(1000*1000):
             if i%10 == 0:
@@ -61,24 +79,43 @@ class Monitor():
             
             time.sleep(1)
 
-    def mm(self):
+    def mlive_mem(self):
         '''
         monitor used_memory_human:1.53M of master
         '''
         def format(s):
             return re.sub('\.\d+', '', s) # 221.53M=>221M
-        self._monitor_redis('used_memory_human', format)
+        self._live_redis('used_memory_human', format)
 
-    def mq(self):
+    def mlive_qps(self):
         '''
         monitor instantaneous_ops_per_sec of master
         '''
-        self._monitor_redis('instantaneous_ops_per_sec')
+        self._live_redis('instantaneous_ops_per_sec')
 
-    def mn(self):
+    def nlive_request(self):
         '''
-        monitor nutcracker status TODO
+        monitor nutcracker requests/s
         '''
+        self._live_nutcracker('requests_INC')
+
+    def nlive_forward_error(self):
+        '''
+        monitor nutcracker forward_error/s
+        '''
+        self._live_nutcracker('forward_error_INC')
+
+    def nlive_inqueue(self):
+        '''
+        monitor nutcracker forward_error/s
+        '''
+        self._live_nutcracker('in_queue')
+
+    def nlive_outqueue(self):
+        '''
+        monitor nutcracker forward_error/s
+        '''
+        self._live_nutcracker('out_queue')
 
     def _monitor(self):
         '''
@@ -121,7 +158,7 @@ class Monitor():
             'infos': infos,
         }
 
-        DIR = os.path.join(PWD, '../data/%s' % common.format_time(now, '%Y%m') )
+        DIR = os.path.join(PWD, '../data')
         STAT_LOG = os.path.join(DIR, 'statlog.%s' % common.format_time(now, '%Y%m%d%H'))
         common.system('mkdir -p %s' % DIR, None)
 
@@ -142,7 +179,7 @@ class Monitor():
             if not info or 'uptime_in_seconds' not in info:
                 logging.warn('%s is down' % node)
             now = time.time()
-            spec = {
+            redis_spec = {
                     'connected_clients':          (0, 1000),
                     'used_memory_peak' :          (0, 5*(2**30)),
                     'rdb_last_bgsave_time_sec':   (0, 1),
@@ -154,16 +191,38 @@ class Monitor():
                     #- hit_rate
                     #- slow log
                 }
-            spec.update(conf.REDIS_MONITOR_EXTRA)
-            for k, expr in spec.items():
+            if 'REDIS_MONITOR_EXTRA' in dir(conf):
+                redis_spec.update(conf.REDIS_MONITOR_EXTRA)
+
+            for k, expr in redis_spec.items():
                 if k in info and not match(info[k], expr):
                     logging.warn('%s.%s is:\t %s, not in %s' % (node, k, info[k], expr))
 
+
         def check_nutcracker(node, info):
+            '''
+            see NutCracker._info_dict() for fields
+            '''
             if not info or 'uptime' not in info:
                 logging.warn('%s is down' % node)
-            pass 
+
+            nutcracker_cluster_spec = {
+                    'client_connections':  (0, 10000),
+                    "forward_error_INC":   (0, 1000),  # in every minute
+                    "client_err_INC":      (0, 1000),  # in every minute
+                    'in_queue':            (0, 1000),
+                    'out_queue':           (0, 1000),
+            }
+            if 'NUTCRACKER_MONITOR_EXTRA' in dir(conf):
+                nutcracker_cluster_spec.update(conf.NUTCRACKER_MONITOR_EXTRA)
+
+            #got info of this cluster
+            info = info[self.args['cluster_name']]
+            for k, expr in nutcracker_cluster_spec.items():
+                if k in info and not match(info[k], expr):
+                    logging.warn('%s.%s is:\t %s, not in %s' % (node, k, info[k], expr))
         
+
         for node, info in infos.items():
             if strstr(node, 'redis'):
                 check_redis(node, info)
