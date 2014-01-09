@@ -74,7 +74,7 @@ usage
 
 choose your config filename::
 
-    export REDIS_DEPLOY_CONFIG=conf
+    export REDIS_DEPLOY_CONFIG=conf && . bin/active
 
 ::
 
