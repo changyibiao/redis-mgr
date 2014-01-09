@@ -20,7 +20,7 @@ class Base:
         self.args = {
             'name'      : name,
             'user'      : user,
-            'host'      : host_port.split(':')[0],
+            'host'      : socket.gethostbyname(host_port.split(':')[0]),
             'port'      : int(host_port.split(':')[1]),
             'path'      : path,
 
@@ -421,10 +421,13 @@ class Cluster(object, Monitor, Benchmark):
     def __init__(self, args):
         self.args = args
         self.all_redis = [ RedisServer(self.args['user'], hp, path) for hp, path in self.args['redis'] ]
-        self.all_masters = masters = self.all_redis[::2]
-        for m in masters:
-            m.args['cluster_name'] = args['cluster_name']
-            m.args['server_name'] = TT('$cluster_name-$port', m.args)
+        pairs = zip(self.all_redis[::2], self.all_redis[1::2])
+
+        for m, s in pairs: #slave use same name as master
+            s.args['cluster_name'] = m.args['cluster_name'] = args['cluster_name']
+            s.args['server_name'] = m.args['server_name'] = TT('$cluster_name-$port', m.args)
+
+        masters = self.all_redis[::2]
 
         self.all_sentinel = [Sentinel(self.args['user'], hp, path, masters) for hp, path in self.args['sentinel'] ]
         self.all_nutcracker = [NutCracker(self.args['user'], hp, path, masters) for hp, path in self.args['nutcracker'] ]
@@ -455,18 +458,13 @@ class Cluster(object, Monitor, Benchmark):
         '''return the current master list on sentinel'''
         new_masters = self._get_available_sentinel().get_masters()
         new_masters = sorted(new_masters, key=lambda x: x[1])
-        def find_redis_path(input_host_port):
-            for host_port, path in self.args['redis']:
-                if host_port ==  input_host_port:
-                    return path
-            logging.warn('we can not find redis path for %s in config' % input_host_port)
-            return ''
 
         def make_master(host_port, name): # make master instance
-            m = RedisServer(self.args['user'], host_port, find_redis_path(host_port))
-            m.args['cluster_name'] = self.args['cluster_name']
-            m.args['server_name'] = name
-            return m
+            host = host_port.split(':')[0]
+            port = int(host_port.split(':')[1])
+            for r in self.all_redis:
+                if r.args['host'] == host and r.args['port'] == port:
+                    return r
 
         masters = [make_master(host_port, name) for host_port, name in new_masters]
         return masters

@@ -19,7 +19,7 @@ class Benchmark():
         run benchmark against nutcracker
         '''
         for s in self.all_nutcracker:
-            cmd = TT('bin/redis-benchmark --csv -h $host -p $port -r 100000 -t set,get -n 100000 -c 100 ', s.args)
+            cmd = TT('bin/redis-benchmark --csv -h $host -p $port -r 100000 -t set,get -n 10000000 -c 100 ', s.args)
             BenchThread(random.choice(self._active_masters()), cmd).start()
 
     def mbench(self):
@@ -27,7 +27,7 @@ class Benchmark():
         run benchmark against redis master
         '''
         for s in self._active_masters():
-            cmd = TT('bin/redis-benchmark --csv -h $host -p $port -r 100000 -t set,get -n 100000 -c 100 ', s.args)
+            cmd = TT('bin/redis-benchmark --csv -h $host -p $port -r 100000 -t set,get -n 10000000 -c 100 ', s.args)
             BenchThread(s, cmd).start()
 
     def stopbench(self):
