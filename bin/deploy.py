@@ -444,7 +444,6 @@ class Cluster(object, Monitor, Benchmark):
         for s in self.all_nutcracker:
             eval('s.%s()' % op)
 
-
     def _get_available_sentinel(self):
         for s in self.all_sentinel:
             if s._alive():

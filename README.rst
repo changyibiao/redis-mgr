@@ -201,6 +201,7 @@ Dependency
 
 - pcl: https://github.com/idning/pcl
 - redis-py: https://github.com/andymccurdy/redis-py
+- argcomplete (optional): https://github.com/kislyuk/argcomplete
 
 Authors
 =======
@@ -211,7 +212,7 @@ Authors
 TODO
 ====
 
-1. schedular for many clusters
+1. schedular for many clusters, we will need it!
 2. SLOW LOG monitor
 3. #live monitor for nutcracker
 4. #nc to get nutcracker status will fail in background::
@@ -219,7 +220,7 @@ TODO
       nohup ./bin/deploy.py cluster0 scheduler  &
 
    we use telnetlib instead
-      
 
 
+https://github.com/idning/redis-mgr
 
