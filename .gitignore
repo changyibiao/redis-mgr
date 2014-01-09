@@ -8,3 +8,4 @@ script/*
 tmp/*
 data/*
 nohup.out
+core

@@ -3,25 +3,26 @@
 #author : ning
 #date   : 2014-01-06 16:30:21
 
+CLUSTER='cluster0'
 
 #test basic
-./bin/deploy.py cluster0 deploy
-./bin/deploy.py cluster0 start
-./bin/deploy.py cluster0 printcmd
-./bin/deploy.py cluster0 status
-./bin/deploy.py cluster0 log
-./bin/deploy.py cluster0 mastercmd 'PING'
-./bin/deploy.py cluster0 rdb
+./bin/deploy.py $CLUSTER deploy
+./bin/deploy.py $CLUSTER start
+./bin/deploy.py $CLUSTER printcmd
+./bin/deploy.py $CLUSTER status
+./bin/deploy.py $CLUSTER log
+./bin/deploy.py $CLUSTER mastercmd 'PING'
+./bin/deploy.py $CLUSTER rdb
 
 #test bench
-./bin/deploy.py cluster0 mq &
-./bin/deploy.py cluster0 bench
+./bin/deploy.py $CLUSTER mlive_qps &
+./bin/deploy.py $CLUSTER nbench
 pkill -f './bin/deploy.py'
 
 #test failover
-./bin/deploy.py cluster0 scheduler -v &
-./bin/deploy.py cluster0 randomkill 
+./bin/deploy.py $CLUSTER scheduler &
+./bin/deploy.py $CLUSTER randomkill 
 pkill -f './bin/deploy.py'
 
-./bin/deploy.py cluster0 stop
+./bin/deploy.py $CLUSTER stop
 
