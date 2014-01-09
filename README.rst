@@ -72,6 +72,10 @@ if slave use a different port, the server ``host:port``  of ``cluster0-20000`` c
 usage
 -----
 
+choose your config filename::
+
+    export REDIS_DEPLOY_CONFIG=conf
+
 ::
 
     $ ./bin/deploy.py -h
@@ -160,6 +164,18 @@ modify config::
     $ ./bin/deploy.py cluster_offline0 mastercmd ' CONFIG GET save' -v
     $ ./bin/deploy.py cluster_offline0 mastercmd 'CONFIG SET save "10000 1000000"' -v
 
+enable auto-complete
+====================
+::
+
+    export REDIS_DEPLOY_CONFIG=conf
+
+    pip install argcomplete
+    $ . ./bin/active
+
+    ning@ning-laptop ~/idning-github/redis-mgr$ ./bin/deploy.py cluster0 r<TAB>
+    randomkill     rdb            reconfigproxy  rediscmd       
+
 
 gen_conf
 ========
@@ -191,4 +207,14 @@ Authors
 
 - @idning
 - @cen-li
+
+TODO
+====
+
+1. schedular for many clusters
+2. SLOW LOG monitor
+3. monitor for nutcracker
+4. fail over will not work with:
+   nohup ./bin/deploy.py cluster0 scheduler  &
+
 

@@ -7,3 +7,4 @@ conf/conf_inner.py
 script/*
 tmp/*
 data/*
+nohup.out

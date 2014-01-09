@@ -1,45 +1,16 @@
 #!/usr/bin/env python
 #coding: utf-8
-#file   : deploy.py
-#author : ning
-#date   : 2013-12-17 21:51:52
 
 import os
-import re
 import sys
-import time
-import copy
-import thread
-import threading
-import logging
-import random
-import inspect
-import argparse
-import redis
-
-from collections import defaultdict
-from argparse import RawTextHelpFormatter
-
-from pcl import common
 
 PWD = os.path.dirname(os.path.realpath(__file__))
 WORKDIR = os.path.join(PWD,  '../')
-LOGPATH = os.path.join(WORKDIR, 'log/deploy.log')
-
 sys.path.append(os.path.join(WORKDIR, 'lib/'))
 sys.path.append(os.path.join(WORKDIR, 'conf/'))
 
 from utils import *
 from monitor import Monitor, Benchmark
-
-# import config in conf/xxx
-if 'REDIS_DEPLOY_CONFIG' not in os.environ:
-    logging.error('please export REDIS_DEPLOY_CONFIG=conf')
-    exit(1)
-config_name = os.environ['REDIS_DEPLOY_CONFIG']
-conf = __import__(config_name, globals(), locals(), [], 0)        #import config_module
-
-ret = common.system('mkdir -p data tmp', None)
 
 class Base:
     '''
@@ -166,7 +137,7 @@ class Base:
 
     def _run(self, raw_cmd):
         ret = common.system(raw_cmd, logging.debug)
-        logging.debug('return : ' + common.shorten(ret))
+        logging.debug('return : [%d] [%s] ' % (len(ret), common.shorten(ret)) )
         return ret
 
 
@@ -278,12 +249,13 @@ sentinel parallel-syncs $server_name 1
         '''return currnet master list of (host:port, name)'''
         conn = redis.Redis(self.args['host'], self.args['port'])
         masters = conn.sentinel_masters()
+        logging.debug('sentinel got masters: %s' % masters)
         return [('%s:%s' % (m['ip'], m['port']), m['name']) for m in masters.values()]
 
     def get_failover_event(self):
         self._sub = redis.Redis(self.args['host'], self.args['port']).pubsub()
         self._sub.subscribe('+switch-master')
-        logging.info('subscribe on +switch-master')
+        logging.info('subscribe +switch-master on %s' % self)
         iterator = self._sub.listen()
         if next(iterator)['channel'] != '+switch-master':
             raise Exception('error on subscribe')
@@ -345,6 +317,7 @@ $cluster_name:
     def _info_dict(self):
         cmd = TT('nc $host $status_port', self.args)
         ret = self._run(cmd)
+        #logging.debug(ret)
         try:
             return common.json_decode(ret)
         except Exception, e:
@@ -502,7 +475,6 @@ class Cluster(object, Monitor, Benchmark):
     def rdb(self):
         '''
         do rdb in all redis instance, 
-        TODO: check rdb_last_save_time, latest_fork_usec
         '''
         self._rediscmd('BGSAVE', conf.RDB_SLEEP_TIME)
 
@@ -522,6 +494,7 @@ class Cluster(object, Monitor, Benchmark):
             r.stop()
             time.sleep(80)
             r.start()
+            time.sleep(60)
 
     def sshcmd(self, cmd):
         '''
@@ -557,14 +530,18 @@ class Cluster(object, Monitor, Benchmark):
             m.reconfig(masters)
         logging.notice('reconfig all nutcracker Done!')
 
-    #@retry(Exception) TODO
     def failover(self):
         '''
         catch failover event and update the proxy configuration
         '''
-        sentinel = self._get_available_sentinel()
-        for event in sentinel.get_failover_event():
-            self.reconfigproxy()
+        while True:
+            try:
+                sentinel = self._get_available_sentinel()
+                for event in sentinel.get_failover_event():
+                    self.reconfigproxy()
+            except Exception, e:
+                logging.warn('we got exception: %s on failover task' % e)
+                logging.exception(e)
 
     def migrage(self):
         '''
@@ -603,7 +580,8 @@ def main():
         help=gen_op_help())
     parser.add_argument('cmd', nargs='?', help='the redis/ssh cmd like "INFO"')
 
-    args = common.parse_args2('log/deploy.log', parser)
+    LOGPATH = os.path.join(WORKDIR, 'log/deploy.log')
+    args = common.parse_args2(LOGPATH, parser)
     if args.cmd:
         eval('Cluster(conf.%s).%s(%s)' % (args.target, args.op, 'args.cmd') )
     else:

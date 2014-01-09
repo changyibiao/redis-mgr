@@ -1,15 +1,6 @@
 #!/usr/bin/env python
 #coding: utf-8
-#file   : monitor.py
-#author : ning
-#date   : 2014-01-06 15:24:48
 
-import urllib, urllib2
-import os, sys
-import re, time
-import logging
-import json
-from pcl import common
 from utils import *
 
 PWD = os.path.dirname(os.path.realpath(__file__))
@@ -25,7 +16,7 @@ class BenchThread(threading.Thread):
 class Benchmark():
     def bench(self):
         '''
-        run benchmark against proxy
+        run benchmark against nutcracker
         '''
         for s in self.all_nutcracker:
             cmd = TT('bin/redis-benchmark --csv -h $host -p $port -r 100000 -t set,get -n 100000 -c 100 ', s.args)
@@ -50,8 +41,16 @@ class Monitor():
         masters = self._active_masters()
         for i in xrange(1000*1000):
             if i%10 == 0:
+                old_masters = masters
                 masters = self._active_masters()
-                header = common.to_blue(' '.join(['%5s' % s.args['port'] for s in masters]))
+
+                old_masters_list = [str(m) for m in old_masters]
+                masters_list = [str(m) for m in masters]
+
+                if masters_list == old_masters_list: 
+                    header = common.to_blue(' '.join(['%5s' % s.args['port'] for s in masters]))
+                else:
+                    header = common.to_red(' '.join(['%5s' % s.args['port'] for s in masters]))
                 print header
             def get_v(s):
                 info = s._info_dict()
@@ -64,7 +63,7 @@ class Monitor():
 
     def mm(self):
         '''
-        monitor used_memory_human:1.53M
+        monitor used_memory_human:1.53M of master
         '''
         def format(s):
             return re.sub('\.\d+', '', s) # 221.53M=>221M
@@ -72,22 +71,28 @@ class Monitor():
 
     def mq(self):
         '''
-        monitor instantaneous_ops_per_sec
+        monitor instantaneous_ops_per_sec of master
         '''
         self._monitor_redis('instantaneous_ops_per_sec')
+
+    def mn(self):
+        '''
+        monitor nutcracker status TODO
+        '''
 
     def _monitor(self):
         '''
         - redis 
             - connected_clients
+            - mem
             - rdb_last_bgsave_time_sec:0
             - aof_last_rewrite_time_sec:0
             - latest_fork_usec
             - slow log
             - hitrate
             - master_link_status:down
-        - proxy
-            - all config of proxy is the same
+        - nutcracker
+            - all config of nutcracker is the same
             - forward_error
             - server_err
             - in_queue/out_queue
@@ -97,9 +102,9 @@ class Monitor():
             'ts': xxx, 
             'timestr': xxx, 
             'infos': {
-                'redis:host:port': {info}
-                'redis:host:port': {info}
-                'nutcracker:host:port': {info}
+                '[redis:host:port]': {info}
+                '[redis:host:port]': {info}
+                '[nutcracker:host:port]': {info}
             },
         }
         '''
@@ -116,16 +121,54 @@ class Monitor():
             'infos': infos,
         }
 
-        STAT_LOG = os.path.join(PWD, '../data/statlog.' + common.format_time_to_hour())
+        DIR = os.path.join(PWD, '../data/%s' % common.format_time(now, '%Y%m') )
+        STAT_LOG = os.path.join(DIR, 'statlog.%s' % common.format_time(now, '%Y%m%d%H'))
+        common.system('mkdir -p %s' % DIR, None)
+
         fout = file(STAT_LOG, 'a+')
         print >> fout, my_json_encode(ret)
         fout.close()
         timeused = time.time() - now
-        logging.notice("ts: %s, timeused: %.2fs" % (common.format_time_to_min(now), timeused))
+        logging.notice("monitor @ ts: %s, timeused: %.2fs" % (common.format_time_to_min(now), timeused))
 
     def _check_warning(self, infos):
-        for i in infos:
-            pass
+        def match(val, expr):
+            if type(expr) == set:
+                return val in expr
+            _min, _max = expr
+            return _min <= float(val) <= _max
+
+        def check_redis(node, info):
+            if not info or 'uptime_in_seconds' not in info:
+                logging.warn('%s is down' % node)
+            now = time.time()
+            spec = {
+                    'connected_clients':          (0, 1000),
+                    'used_memory_peak' :          (0, 5*(2**30)),
+                    'rdb_last_bgsave_time_sec':   (0, 1),
+                    'aof_last_rewrite_time_sec':  (0, 1),
+                    'latest_fork_usec':           (0, 100*1000), #100ms
+                    'master_link_status':         set(['up']),
+                    'rdb_last_bgsave_status':     set(['ok']),
+                    'rdb_last_save_time':         (now-25*60*60, now),
+                    #- hit_rate
+                    #- slow log
+                }
+            spec.update(conf.REDIS_MONITOR_EXTRA)
+            for k, expr in spec.items():
+                if k in info and not match(info[k], expr):
+                    logging.warn('%s.%s is:\t %s, not in %s' % (node, k, info[k], expr))
+
+        def check_nutcracker(node, info):
+            if not info or 'uptime' not in info:
+                logging.warn('%s is down' % node)
+            pass 
+        
+        for node, info in infos.items():
+            if strstr(node, 'redis'):
+                check_redis(node, info)
+            if strstr(node, 'nutcracker'):
+                check_nutcracker(node, info)
 
     def monitor(self):
         '''
@@ -143,12 +186,12 @@ class Monitor():
             - cron of rdb 
             = graph web server
         '''
-        
         thread.start_new_thread(self.failover, ())
 
         cron = crontab.Cron()
         cron.add('* * * * *'   , self._monitor) # every minute
-        cron.add('* * * * *' , self.rdb, use_thread=True)        # every day
+        cron.add('0 3 * * *' , self.rdb, use_thread=True)                # every day
+        cron.add('0 5 * * *' , self.aof_rewrite, use_thread=True)        # every day
         cron.run()
 
 # vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4

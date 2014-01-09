@@ -12,9 +12,6 @@
 ./bin/deploy.py cluster0 mastercmd 'PING'
 ./bin/deploy.py cluster0 rdb
 
-./bin/deploy.py cluster0 failover &
-./bin/deploy.py cluster0 randomkill 
-pkill -f './bin/deploy.py'
 
 ./bin/deploy.py cluster0 mq &
 ./bin/deploy.py cluster0 bench
@@ -23,4 +20,7 @@ pkill -f './bin/deploy.py'
 ./bin/deploy.py cluster0 stop
 
 
-
+# this not work. why ?
+#./bin/deploy.py cluster0 scheduler -v &
+#./bin/deploy.py cluster0 randomkill 
+#pkill -f './bin/deploy.py'

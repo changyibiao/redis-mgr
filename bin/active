@@ -1,0 +1,3 @@
+#!/bin/bash
+eval "$(register-python-argcomplete bin/deploy.py)"
+eval "$(register-python-argcomplete ./bin/deploy.py)"
